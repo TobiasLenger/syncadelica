@@ -361,6 +361,76 @@ body {
     pointer-events: none;
     padding: 0 5vw;
     box-sizing: border-box;
+    gap: 20px; /* Add gap between lyrics and album art */
+}
+
+/* Album Art Container */
+#album-art-container {
+    width: 350px; /* Increased size for album art */
+    align-self: center; /* Vertically center it within main-content flex */
+
+    opacity: 0;
+    transform: scale(0.7); /* Adjusted for a bouncier feel, similar to modals */
+    visibility: hidden;
+    pointer-events: none; /* Not interactive when hidden */
+
+    display: flex; /* Is a flex container by default */
+    flex-direction: column;
+    align-items: center; /* Center info block if narrower than image */
+    gap: 12px; /* Space between image and info block */
+
+    /* Bouncier transition, similar to modals */
+    transition: opacity 0.3s ease-in-out, transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55), visibility 0s linear 0.4s;
+    /* visibility transition: hide immediately after opacity/transform finishes fading out (0.4s matches transform duration) */
+}
+
+#album-art-container.visible {
+    opacity: 1;
+    transform: scale(1);
+    visibility: visible;
+    pointer-events: auto; /* Interactive when visible */
+    transition-delay: 0s; /* Apply visibility change immediately when becoming visible */
+}
+
+#album-art-container img {
+    width: 100%;
+    aspect-ratio: 1 / 1; /* Ensures the image is square */
+    object-fit: cover;   /* Cover the area, might crop if original is not square */
+    border-radius: 12px; /* Soften edges */
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    user-select: none; /* Prevent text selection */
+    -webkit-user-drag: none; /* Prevent dragging in WebKit browsers */
+}
+
+.album-art-info {
+    text-align: center;
+    color: #e0e0e0;
+    width: 100%; /* Take full width of the container (300px) */
+    box-sizing: border-box;
+}
+
+.album-art-title {
+    font-size: 1em;
+    font-weight: 600;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.album-art-artist {
+    font-size: 0.85em;
+    color: #b3b3b3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Layout specific order for lyrics and album art */
+body[data-layout="text-left"] #main-content { flex-direction: row; } /* Lyrics left, Art right */
+body[data-layout="text-right"] #main-content { flex-direction: row-reverse; } /* Art left, Lyrics right */
+body[data-layout="text-center"] #album-art-container {
+    display: none !important; /* Ensure it's hidden when text is centered */
 }
 
 #lyrics-container {
@@ -371,6 +441,23 @@ body {
     position: relative;
     -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
     mask-image: linear-gradient(to bottom, transparent 0%, black 20%, black 80%, transparent 100%);
+}
+
+#lyrics-countdown {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 8rem; /* Large font for countdown */
+    font-weight: 700; /* Bold */
+    color: rgba(255, 255, 255, 0.85);
+    z-index: 10; /* Ensure it's above lyrics-list if needed */
+    opacity: 0;
+    pointer-events: none; /* Not interactive */
+    transition: opacity 0.2s ease-in-out;
+}
+#lyrics-countdown.visible {
+    opacity: 1;
 }
 
 #lyrics-list {
@@ -469,6 +556,8 @@ body[data-layout="text-center"] #lyrics-list { text-align: center; }
 body[data-layout="text-right"] #lyrics-list { text-align: right; }
 
 #ui-container, #show-ui-button { position: fixed; z-index: 50; }
+#ui-container { z-index: 10; } /* Lowered to be below logo and top icons */
+#show-ui-button { z-index: 11; } /* Above ui-container, but still below logo/top icons */
 #ui-container {
     bottom: 0; left: 0; width: 100%; pointer-events: auto;
     transition: transform 0.4s ease-in-out;
@@ -500,21 +589,80 @@ body[data-layout="text-right"] #lyrics-list { text-align: right; }
 .player-button svg { width: 28px; height: 28px; fill: currentColor; }
 .player-button .hidden { display: none; }
 
-#song-info {
+.playback-core {
     display: flex;
     flex-direction: column;
-    align-items: flex-start; /* Align text to the left */
-    text-align: left;
-    min-width: 100px; /* Give it some minimum space */
+    align-items: center;
+    flex-grow: 1;
+    min-width: 0; /* Prevents overflow issues with nested flex items */
+    gap: 8px; /* Space between play/pause button and progress area */
+}
+
+.progress-area {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 10px; /* Spacing around progress bar */
+}
+
+
+#song-info {
+    display: flex;
+    align-items: center; /* Vertically align art and text */
+    gap: 10px; /* Space between album art and text info */
+    min-width: 180px; /* Adjusted for album art */
     flex-shrink: 1; /* Allow it to shrink if needed */
     overflow: hidden; /* Hide overflow text */
     margin-right: 10px; /* Space before play button */
 }
-#song-title { font-size: 0.95em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-#song-artist { font-size: 0.8em; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;}
+
+#player-album-art-container {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0; /* Prevent album art from shrinking */
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: #2c2c2c; /* Placeholder background */
+}
+
+#player-album-art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none; /* Hidden by default, shown by JS */
+     user-select: none; /* Prevent text selection */
+    -webkit-user-drag: none; /* Prevent dragging in WebKit browsers */
+}
+
+.song-info-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow: hidden; /* Crucial for ellipsis on title/artist */
+    flex-grow: 1; /* Allow text block to take available space */
+}
+
+#song-title {
+    font-size: 0.95em;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%; /* Take full width of .song-info-text */
+    color: #e0e0e0;
+}
+#song-artist { font-size: 0.8em; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
 
 .time-display { font-size: 0.9em; font-family: monospace; min-width: 40px; flex-shrink: 0; /* Prevent time from shrinking */ }
-#progress-bar { flex-grow: 1; height: 6px; background-color: rgba(255, 255, 255, 0.2); border-radius: 3px; cursor: pointer; overflow: hidden; }
+#progress-bar {
+    flex-grow: 1;
+    height: 6px;
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    cursor: pointer;
+    overflow: hidden;
+    flex-basis: 0; /* Allow progress bar to take all remaining space */
+}
 #progress-fill { height: 100%; width: 0%; background-color: #fff; border-radius: 3px; box-shadow: 0 0 10px #fff; }
 #volume-container { display: flex; align-items: center; gap: 8px; }
 #player-section audio { display: none; }
@@ -541,6 +689,15 @@ body[data-layout="text-right"] #lyrics-list { text-align: right; }
 .control-grid label { font-weight: 500; font-size: 0.9em; }
 .layout-controls { display: flex; gap: 10px; }
 .layout-controls .layout-button svg { width: 32px; height: 32px; fill: currentColor; stroke: none; }
+.layout-controls-divider {
+    width: 1px;
+    background-color: #444; /* Same color as panel-section border */
+    align-self: stretch; /* Make it take full height of the flex container */
+    margin-left: 5px; /* Optional: small space before divider */
+    margin-right: 5px; /* Optional: small space after divider */
+}
+
+.layout-controls #toggle-album-art-button svg { width: 32px; height: 32px; fill: currentColor; stroke: none; }
 .layout-controls .icon-button.active { background: rgba(255,255,255,0.1); border-radius: 4px; }
 #show-ui-button {
     position: fixed; bottom: 15px; left: 50%; transform: translateX(-50%);
@@ -617,3 +774,255 @@ body.drag-over-active::before {
 /* Ensure links within credits section match modal link styles */
 .greeting-content .credits-section a, .info-window-content .credits-section a { color: #4dabf7; }
 .greeting-content .credits-section a:hover, .info-window-content .credits-section a:hover { color: #74c0fc; }
+
+/* Mobile specific styles */
+
+/* Changelog List Styles (within modals) */
+.greeting-content .changelog-details-section ul.changelog-list,
+.info-window-content .changelog-details-section ul.changelog-list {
+    font-size: 0.85em; /* Consistent with acknowledgements text size */
+    line-height: 1.5; /* Slightly more spacing for readability */
+    color: #ccc;
+    padding-left: 20px; /* Standard padding for bulleted list */
+    margin-top: 5px; /* Space between header and list */
+    margin-bottom: 8px;
+    list-style-type: disc; /* Use standard disc bullets */
+}
+
+.greeting-content .changelog-details-section ul.changelog-list li,
+.info-window-content .changelog-details-section ul.changelog-list li {
+    margin-bottom: 5px; /* Space between changelog items */
+}
+
+/* Class to hide top mobile controls via JS */
+#top-left-mobile-controls.mobile-controls-hidden-by-ui,
+#top-right-mobile-controls.mobile-controls-hidden-by-ui {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    /* transform: translateY(-100%); Optional: if you want them to slide up a bit too */
+}
+
+/* New Top Mobile Controls */
+#top-left-mobile-controls,
+#top-right-mobile-controls {
+    position: fixed;
+    top: 15px; /* Adjust to align with logo or desired padding */
+    z-index: 55; /* Above UI container and logo */
+    display: none; /* Hidden by default, shown in media query */
+    opacity: 1; /* Default visible state when display:flex is active */
+    gap: 10px;
+    transition: opacity 0.3s ease-in-out; /* Matching logo's opacity transition */
+}
+
+#top-left-mobile-controls {
+    left: 15px;
+}
+
+#top-right-mobile-controls {
+    right: 15px;
+}
+
+#top-left-mobile-controls .icon-button svg,
+#top-right-mobile-controls .icon-button svg {
+    width: 28px; /* Slightly larger for top bar touch targets */
+    height: 28px;
+}
+
+@media (max-width: 768px) {
+    #top-left-mobile-controls,
+    #top-right-mobile-controls {
+        display: flex;
+    }
+
+    #main-page-logo {
+        width: 150px; /* Made logo a bit bigger */
+        top: 20px; /* Adjusted for better vertical centering with top buttons */
+    }
+
+    /* Control Bar adjustments for Mobile */
+    #control-bar {
+        position: relative; /* For absolute positioning of progress bar */
+        padding-top: 5px; /* Space for the progress bar line */
+        height: 65px; /* Adjusted height for mobile */
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px; /* Gap between player section and action buttons section */
+    }
+
+    #progress-bar { /* Repurposed as top border progress */
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 3px; /* Thickness of the progress line */
+        background-color: rgba(255, 255, 255, 0.15); /* Track color */
+        border-radius: 0; /* Make it a line */
+    }
+    #progress-fill {
+        border-radius: 0; /* Make it a line */
+        box-shadow: none; /* Remove shadow for cleaner line */
+    }
+
+    /* Hide elements not needed in mobile control bar */
+    #control-bar #file-upload-section,
+    #control-bar #volume-container,
+    #control-bar #toggle-visuals-button, /* Original settings button in bar */
+    #custom-player .progress-area #current-time, /* Hide time displays */
+    #custom-player .progress-area #total-duration {
+        display: none !important;
+    }
+     /* Hide the original progress bar's container, as the bar itself is now absolute */
+    #custom-player .progress-area {
+        display: block; /* Or flex, just needs to exist for the #progress-bar child */
+        height: 0; /* Effectively hide its layout space */
+        width: 0;
+        overflow: hidden;
+    }
+
+
+    #player-section {
+        flex-grow: 1; /* Takes up space left by action buttons */
+        display: flex;
+        min-width: 0; /* Allow shrinking */
+    }
+
+    #custom-player {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        gap: 10px; /* Gap between song info and play/pause */
+    }
+
+    #song-info {
+        flex-grow: 1; /* Song info takes available space */
+        min-width: 0; /* Important for text ellipsis */
+        margin-right: 0; /* Remove desktop margin */
+    }
+    #song-info #player-album-art-container { width: 36px; height: 36px; } /* Slightly smaller album art in player */
+    #song-title { font-size: 0.9em; }
+    #song-artist { font-size: 0.75em; }
+
+    .playback-core {
+        flex-direction: row; /* Ensure play button is in row if other items were there */
+        gap: 0; /* Remove gap if any */
+    }
+    #play-pause-btn svg { width: 26px; height: 26px; }
+
+    #action-buttons-section {
+        padding-left: 0; /* Remove padding if it was from panel-section style */
+        border-left: none; /* Remove border if it was from panel-section style */
+        /* Contains only hide-ui-button now */
+    }
+    #hide-ui-button svg { width: 26px; height: 26px; }
+
+    #visuals-panel {
+        position: fixed; /* Changed from absolute to fixed for viewport positioning */
+        top: 70px;       /* Position below the top bar elements */
+        left: 50%;
+        bottom: auto;    /* Reset desktop positioning */
+        right: auto;     /* Reset desktop positioning */
+        width: 90vw;
+        max-width: 450px; /* Max width for the panel on mobile */
+        /* z-index is relative to ui-container, which is now 70.
+           A z-index:1 here would place it above other direct children of ui-container. */
+        z-index: 1;
+        border-radius: 12px; /* Softer radius for mobile */
+        /* transform for centering is part of the shown/hidden states */
+        transform: translate(-50%, 0); /* Shown state: centered and below top bar */
+        flex-direction: column; /* Stack sections vertically on mobile */
+        justify-content: center; /* Vertically center the panel sections */
+        opacity: 1; /* Ensure fully opaque when shown */
+        box-sizing: border-box; /* Ensure padding and border are included in the width calculation */
+        width: calc(100vw - 40px); /* Override 90vw to ensure 20px margin on each side */
+        /* max-width: 450px still applies; centering is handled by left: 50% and transform: translateX(-50%) */
+    }
+
+    #visuals-panel.hidden {
+        opacity: 0;
+        /* Reversed: Slide UP by 20px when hiding */
+        transform: translate(-50%, -20px); 
+        pointer-events: none; /* No width or box-sizing change needed for the hidden state itself */
+    }
+
+    .greeting-content,
+    .info-window-content {
+        box-sizing: border-box; /* Ensure padding and border are included in the width calculation */
+        width: calc(100vw - 40px); /* Ensure 20px margin from viewport edges */
+        /* Global max-width will still apply. Centering is handled by parent flexbox. */
+    }
+
+    /* Adjust panel sections for vertical stacking on mobile */
+    #visuals-panel .panel-section {
+        border-left: none; /* Remove left border */
+        padding-left: 0;   /* Remove left padding */
+        border-top: 1px solid #444; /* Add top border */
+        padding-top: 20px;  /* Add top padding */
+    }
+    #visuals-panel .panel-section:first-child {
+        border-top: none;   /* No top border for the first section */
+        padding-top: 0;     /* No top padding for the first section */
+    }
+    /* Hide Display category in settings menu on mobile */
+    #visuals-panel #display-panel-section {
+        display: none !important;
+    }
+
+    /* Center items within layout-controls on mobile */
+    #visuals-panel .panel-section .layout-controls {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 768px) {
+    #album-art-container {
+        display: none !important; /* Hide album art on mobile */
+    }
+
+    #toggle-album-art-button {
+        display: none !important; /* Hide album art toggle button on mobile */
+    }
+
+    /* Adjust main content to center lyrics when album art is hidden */
+    #main-content {
+        gap: 0; /* Remove gap as album art is hidden */
+        justify-content: center; /* Ensure lyrics container is centered */
+    }
+
+    .lyric-line { font-size: 1.6rem; } /* Slightly smaller lyrics on mobile */
+    #lyrics-container .placeholder { font-size: 1.5rem; }
+}
+
+/* Collapsible Section Styles */
+.collapsible-trigger {
+    cursor: pointer;
+    user-select: none; /* Prevent text selection when clicking to toggle */
+    display: flex; /* Allows alignment of text and icon */
+    justify-content: space-between; /* Pushes icon to the right */
+    align-items: center;
+    /* Inherits other h4 styles from .greeting-content h4 or .info-window-content h4 */
+}
+
+.toggle-indicator {
+    display: inline-block;
+    transition: transform 0.2s ease-in-out;
+    font-size: 0.8em; /* Relative to parent h4 font size */
+    margin-left: 8px; /* Space between "Acknowledgements" text and icon */
+}
+
+.collapsible-target {
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.3s ease-out, opacity 0.3s ease-out, margin-top 0.3s ease-out;
+    /* Styles for p, ul inside will be inherited from .credits-section */
+}
+
+.collapsible-target.expanded {
+    max-height: 500px; /* Adjust if content might be taller */
+    opacity: 1;
+    margin-top: 10px; /* Space below the h4 header when content is visible */
+}
+.collapsible-trigger.expanded .toggle-indicator {
+    transform: rotate(-180deg); /* Rotates '▼' to become '▲' */
+}

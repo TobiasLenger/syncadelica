@@ -9,6 +9,7 @@ window.onload = () => {
     const lrcFileInput = document.getElementById('lrc-file');
     const lyricsContainer = document.getElementById('lyrics-container');
     const lyricsList = document.getElementById('lyrics-list');
+    const albumArtContainer = document.getElementById('album-art-container');
     const uiContainer = document.getElementById('ui-container');
     const showUiButton = document.getElementById('show-ui-button');
     const hideUiButton = document.getElementById('hide-ui-button');
@@ -16,6 +17,11 @@ window.onload = () => {
     const visualsPanel = document.getElementById('visuals-panel');
     const uploadMusicButton = document.getElementById('upload-music-button');
     const uploadLrcButton = document.getElementById('upload-lrc-button');
+    const uploadMusicButtonTop = document.getElementById('upload-music-button-top'); // New
+    const uploadLrcButtonTop = document.getElementById('upload-lrc-button-top');   // New
+    const topLeftMobileControls = document.getElementById('top-left-mobile-controls');
+    const topRightMobileControls = document.getElementById('top-right-mobile-controls');
+    const toggleVisualsButtonTop = document.getElementById('toggle-visuals-button-top'); // New
     const layoutButtons = document.querySelectorAll('.layout-button');
     const playPauseBtn = document.getElementById('play-pause-btn');
     const playIcon = document.getElementById('play-icon');
@@ -29,6 +35,8 @@ window.onload = () => {
     const volumeMuteIcon = document.getElementById('volume-mute-icon');
     const songTitleEl = document.getElementById('song-title');
     const songArtistEl = document.getElementById('song-artist');
+    const playerAlbumArt = document.getElementById('player-album-art');
+    const playerAlbumArtContainer = document.getElementById('player-album-art-container');
     const volumeSlider = document.getElementById('volume-slider');
     const reactivitySlider = document.getElementById('reactivity-slider');
     const greetingWindow = document.getElementById('greeting-window');
@@ -38,6 +46,8 @@ window.onload = () => {
     const toggleWordAnimationButton = document.getElementById('toggle-word-animation-button');
     const toggleLinesModeButton = document.getElementById('toggle-lines-mode-button');
     const closeHotkeyInfoButton = document.getElementById('close-hotkey-info-button');
+    const toggleAlbumArtButton = document.getElementById('toggle-album-art-button');
+    const lyricsCountdownDisplay = document.getElementById('lyrics-countdown');
 
 
     // --- 2. STATE ---
@@ -49,8 +59,11 @@ window.onload = () => {
     let scrollTimeout = null;
     let currentY = 0;
     let dragEnterCounter = 0;
+    let touchStartY = 0; // For touch scrolling
+    let touchMoveY = 0; // For touch scrolling
     let isWordByWordAnimationEnabled = false;
     let isLinesModeEnabled = true; // Default: Lines Mode is ON (all lines visible, .passed style applies)
+    let isAlbumArtVisibleSetting = true; // Default: Album art is enabled by setting
 
     // --- 3. HELPER FUNCTIONS ---
 
@@ -100,6 +113,10 @@ window.onload = () => {
         
         const existingPlaceholder = lyricsContainer.querySelector('.placeholder'); // Removes any type of placeholder
         if(existingPlaceholder) existingPlaceholder.remove();
+        if (lyricsCountdownDisplay) {
+            lyricsCountdownDisplay.classList.remove('visible');
+            lyricsCountdownDisplay.textContent = '';
+        }
 
         lyricsList.innerHTML = '';
         songTitleEl.textContent = 'No song loaded';
@@ -108,13 +125,36 @@ window.onload = () => {
         lyricsList.style.transition = 'none';
         lyricsList.style.transform = `translateY(${currentY}px)`;
         setTimeout(() => {
+           if (lyricsList) lyricsList.style.opacity = '1'; // Ensure visible after potential countdown
            lyricsList.style.transition = 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
-        }, 50);
+        }, 50);       
+
+        // Reset album art
+        albumArtContainer.innerHTML = '';
+        albumArtContainer.classList.remove('visible');
+
+        if (!keepSongInfo) {
+            songTitleEl.textContent = 'No song loaded';
+            songArtistEl.textContent = '';
+            // Reset player bar album art only if not keeping song info
+            if (playerAlbumArt && playerAlbumArtContainer) {
+                playerAlbumArt.src = '';
+                playerAlbumArt.alt = '';
+                playerAlbumArt.style.display = 'none';
+                playerAlbumArtContainer.style.backgroundColor = '#2c2c2c'; // Restore placeholder bg
+            }
+        }
     }
 
     function populateLyricsContainer() {
         const existingPlaceholder = lyricsContainer.querySelector('.placeholder');
         if (existingPlaceholder) existingPlaceholder.remove();
+
+        if (lyricsCountdownDisplay) { // Hide countdown when repopulating
+            lyricsCountdownDisplay.classList.remove('visible');
+            lyricsCountdownDisplay.textContent = '';
+        }
+        if (lyricsList) lyricsList.style.opacity = '1'; // Ensure lyrics list is visible
         
         lyricsList.innerHTML = '';
         lyricElements = lyrics.map((line) => {
@@ -152,8 +192,51 @@ window.onload = () => {
     }
 
     function updateLyricView(force = false) {
-        if (lyricElements.length === 0 || (isUserScrolling && !force)) return;
+        if (lyricElements.length === 0 || (isUserScrolling && !force)) {
+            // If no lyrics or user is scrolling, ensure countdown is not visible
+            if (lyricsCountdownDisplay) lyricsCountdownDisplay.classList.remove('visible');
+            // Ensure lyrics list is visible if it has content and we are not in a countdown elsewhere
+            if (lyricsList && lyricElements.length > 0) lyricsList.style.opacity = '1'; 
+            return;
+        }
         
+        // Countdown Logic
+        // Ensure lyricsCountdownDisplay is defined and there are lyrics to avoid errors.
+        // Also check that lyrics[0] and lyrics[0].time are valid.
+        if (lyricsCountdownDisplay && lyrics.length > 0 && lyrics[0] && typeof lyrics[0].time === 'number') {
+            const firstLyricTime = lyrics[0].time;
+            const timeToFirstLyric = firstLyricTime - audio.currentTime;
+
+            // Show countdown if audio hasn't reached the first lyric's time,
+            // it's within the 3-second window before the first lyric,
+            // AND the first lyric doesn't start too immediately (e.g., > 0.5s).
+            if (audio.currentTime < firstLyricTime && timeToFirstLyric > 0 && timeToFirstLyric <= 3.0 && firstLyricTime > 0.5) {
+                const countdownNumber = Math.ceil(timeToFirstLyric);
+                lyricsCountdownDisplay.textContent = countdownNumber;
+                lyricsCountdownDisplay.classList.add('visible');
+                
+                if (lyricsList) lyricsList.style.opacity = '0'; // Hide lyrics list during countdown
+
+                // Clear any active/passed classes from lyrics as they are not yet relevant
+                lyricElements.forEach(el => {
+                    el.classList.remove('active', 'passed');
+                    if (el.wordSpans) {
+                        el.wordSpans.forEach(span => span.classList.remove('word-revealed'));
+                    }
+                });
+                currentLyricIndex = -1; // Ensure lyric index is reset during countdown
+                return; // Stop further lyric processing for this frame
+            } else {
+                // Not in countdown window, or countdown finished
+                lyricsCountdownDisplay.classList.remove('visible');
+                if (lyricsList) lyricsList.style.opacity = '1'; // Ensure lyrics list is visible
+            }
+        } else if (lyricsCountdownDisplay) { 
+            // Fallback: If lyricsCountdownDisplay exists but other conditions (e.g. no lyrics) aren't met, ensure it's hidden.
+            lyricsCountdownDisplay.classList.remove('visible');
+            if (lyricsList) lyricsList.style.opacity = '1'; // And lyrics list is visible
+        }
+
         let newLyricIndex = -1;
         for (let i = 0; i < lyrics.length; i++) {
             if (audio.currentTime >= lyrics[i].time) newLyricIndex = i; else break;
@@ -314,6 +397,13 @@ window.onload = () => {
                     setPlaceholderMessage("Upload a song to begin.", 'default');
                 }
             }
+
+            // Album art visibility based on layout
+            if (document.body.dataset.layout === 'text-center') {
+                albumArtContainer.classList.remove('visible'); // Always hide if centered
+            } else if (isAlbumArtVisibleSetting && albumArtContainer.querySelector('img')) {
+                albumArtContainer.classList.add('visible'); // Show if setting allows and art exists
+            }
         },
         draw(audioData) {
             this.uniforms.u_time.value += 0.016;
@@ -399,14 +489,20 @@ window.onload = () => {
             uiContainer.classList.add('hidden');
             showUiButton.classList.remove('hidden');
             if (mainPageLogo) mainPageLogo.classList.add('hidden-by-ui');
+            if (topLeftMobileControls) topLeftMobileControls.classList.add('mobile-controls-hidden-by-ui');
+            if (topRightMobileControls) topRightMobileControls.classList.add('mobile-controls-hidden-by-ui');
         });
         showUiButton.addEventListener('click', () => {
             uiContainer.classList.remove('hidden');
             showUiButton.classList.add('hidden');
             if (mainPageLogo) {
                 mainPageLogo.classList.remove('hidden-by-ui');
-                mainPageLogo.style.pointerEvents = 'auto';
+                // mainPageLogo.style.pointerEvents = 'auto'; // CSS handles this via .hidden-by-ui removal
             }
+            // The CSS for these elements handles their display based on screen width.
+            // Removing the 'hidden' class allows the CSS to take effect.
+            if (topLeftMobileControls) topLeftMobileControls.classList.remove('mobile-controls-hidden-by-ui');
+            if (topRightMobileControls) topRightMobileControls.classList.remove('mobile-controls-hidden-by-ui');
             // Note: visualsPanel remains hidden unless explicitly opened by toggleVisualsButton
         });
 
@@ -418,9 +514,15 @@ window.onload = () => {
                 }
             });
         }
+        // Original toggle visuals button
         toggleVisualsButton.addEventListener('click', () => visualsPanel.classList.toggle('hidden'));
+        // Top mobile toggle visuals button
+        if (toggleVisualsButtonTop) toggleVisualsButtonTop.addEventListener('click', () => visualsPanel.classList.toggle('hidden'));
+
         uploadMusicButton.addEventListener('click', () => musicFileInput.click());
+        if (uploadMusicButtonTop) uploadMusicButtonTop.addEventListener('click', () => musicFileInput.click());
         uploadLrcButton.addEventListener('click', () => lrcFileInput.click());
+        if (uploadLrcButtonTop) uploadLrcButtonTop.addEventListener('click', () => lrcFileInput.click());
         musicFileInput.addEventListener('change', handleMusicUpload);
         lrcFileInput.addEventListener('change', handleLrcUpload);
         
@@ -428,6 +530,22 @@ window.onload = () => {
              document.body.dataset.layout = button.dataset.layout;
             layoutButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
+
+            // Toggle album art visibility based on layout
+            if (button.dataset.layout === 'text-center') {
+                albumArtContainer.classList.remove('visible');
+            } else if (isAlbumArtVisibleSetting) {
+                // Show only if art actually exists (img child) and setting allows
+                if (albumArtContainer.querySelector('img')) albumArtContainer.classList.add('visible');
+            } else {
+                albumArtContainer.classList.remove('visible'); // Hide if setting disallows
+            }
+
+            // Disable/enable album art toggle based on layout
+            if (toggleAlbumArtButton) {
+                toggleAlbumArtButton.disabled = (button.dataset.layout === 'text-center');
+                toggleAlbumArtButton.classList.toggle('inactive', button.dataset.layout === 'text-center');
+            }
         }));
 
         lyricsContainer.addEventListener('wheel', (e) => {
@@ -444,6 +562,36 @@ window.onload = () => {
                 lyricsList.style.transition = 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
                 updateLyricView(true);
             }, 2000);
+        });
+
+        // Touch scrolling for lyrics
+        lyricsContainer.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) { // Single touch
+                isUserScrolling = true;
+                clearTimeout(scrollTimeout);
+                lyricsList.style.transition = 'none'; // Allow immediate drag
+                touchStartY = e.touches[0].clientY;
+                touchMoveY = currentY; // Start from the current scrolled position
+            }
+        });
+
+        lyricsContainer.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 1 && isUserScrolling) {
+                e.preventDefault(); // Prevent page scroll
+                const deltaY = e.touches[0].clientY - touchStartY;
+                currentY = touchMoveY + deltaY;
+                lyricsList.style.transform = `translateY(${currentY}px)`;
+            }
+        });
+
+        lyricsContainer.addEventListener('touchend', () => {
+            if (isUserScrolling) {
+                scrollTimeout = setTimeout(() => {
+                    isUserScrolling = false;
+                    lyricsList.style.transition = 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
+                    updateLyricView(true); // Snap to the nearest lyric or update view
+                }, 1000); // A shorter timeout after touch might feel more responsive
+            }
         });
 
         playPauseBtn.addEventListener('click', togglePlayPause);
@@ -508,6 +656,25 @@ window.onload = () => {
                 // as Lines Mode is forced ON by the other toggle's logic.
             });
         }
+
+        if (toggleAlbumArtButton) {
+            toggleAlbumArtButton.addEventListener('click', () => {
+                isAlbumArtVisibleSetting = !isAlbumArtVisibleSetting;
+                toggleAlbumArtButton.classList.toggle('active', isAlbumArtVisibleSetting);
+                
+                if (isAlbumArtVisibleSetting && document.body.dataset.layout !== 'text-center' && albumArtContainer.querySelector('img')) {
+                    albumArtContainer.classList.add('visible');
+                } else {
+                    albumArtContainer.classList.remove('visible');
+                }
+            });
+            // Initialize button state
+            toggleAlbumArtButton.classList.toggle('active', isAlbumArtVisibleSetting);
+            // Also set initial disabled state based on current layout
+            const currentLayout = document.body.dataset.layout || document.querySelector('.layout-button.active')?.dataset.layout;
+            toggleAlbumArtButton.disabled = (currentLayout === 'text-center');
+            toggleAlbumArtButton.classList.toggle('inactive', currentLayout === 'text-center');
+        }
     }
 
     async function processMusicFile(file) {
@@ -523,11 +690,17 @@ window.onload = () => {
         window.jsmediatags.read(file, {
             onSuccess: async (tag) => {
                 const { title, artist } = tag.tags;
-                songTitleEl.textContent = title || 'Unknown Title';
-                songArtistEl.textContent = artist || 'Unknown Artist';
-                if (title && artist) {
-                    await searchAndApplyLyrics(artist, title);
+                const parsedFilename = parseFilename(file.name);
+                const finalTitle = title || parsedFilename.title || 'Unknown Title';
+                const finalArtist = artist || parsedFilename.artist || 'Unknown Artist';
+
+                displayAlbumArt(tag.tags.picture, finalTitle, finalArtist);
+                songTitleEl.textContent = finalTitle;
+                songArtistEl.textContent = finalArtist;
+                if (finalTitle !== 'Unknown Title' && finalArtist !== 'Unknown Artist') {
+                    await searchAndApplyLyrics(finalArtist, finalTitle);
                 } else {
+                    // Fallback to filename parsing if tags are incomplete
                     const fromFilename = parseFilename(file.name);
                     songTitleEl.textContent = fromFilename.title || 'Unknown Title';
                     songArtistEl.textContent = fromFilename.artist || 'Unknown Artist';
@@ -536,11 +709,58 @@ window.onload = () => {
             },
             onError: async () => {
                 const fromFilename = parseFilename(file.name);
-                songTitleEl.textContent = fromFilename.title || 'Unknown Title';
-                songArtistEl.textContent = fromFilename.artist || 'Unknown Artist';
-                await searchAndApplyLyrics(fromFilename.artist, fromFilename.title);
+                const finalTitle = fromFilename.title || 'Unknown Title';
+                const finalArtist = fromFilename.artist || 'Unknown Artist';
+
+                albumArtContainer.innerHTML = ''; // Clear previous art
+                albumArtContainer.classList.remove('visible');
+                songTitleEl.textContent = finalTitle;
+                songArtistEl.textContent = finalArtist;
+                await searchAndApplyLyrics(finalArtist, finalTitle);
             }
         });
+    }
+
+    function displayAlbumArt(picture, title, artist) {
+        albumArtContainer.innerHTML = ''; // Clear previous art
+        if (picture) {
+            const base64String = picture.data.reduce((acc, byte) => acc + String.fromCharCode(byte), '');
+            const imageUrl = `data:${picture.format};base64,${window.btoa(base64String)}`;
+            const img = document.createElement('img');
+            img.src = imageUrl;
+            img.alt = "Album Art";
+            albumArtContainer.appendChild(img);
+
+            const artInfoDiv = document.createElement('div');
+            artInfoDiv.className = 'album-art-info';
+
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'album-art-title';
+            titleDiv.textContent = title;
+            artInfoDiv.appendChild(titleDiv);
+
+            const artistDiv = document.createElement('div');
+            artistDiv.className = 'album-art-artist';
+            artistDiv.textContent = artist;
+            artInfoDiv.appendChild(artistDiv);
+
+            albumArtContainer.appendChild(artInfoDiv);
+
+            if (isAlbumArtVisibleSetting && document.body.dataset.layout !== 'text-center') {
+                albumArtContainer.classList.add('visible');
+            }
+
+            // Player bar album art
+            if (playerAlbumArt && playerAlbumArtContainer) {
+                playerAlbumArt.src = imageUrl;
+                playerAlbumArt.alt = picture ? `Album art for ${title}` : '';
+                playerAlbumArt.style.display = 'block';
+                playerAlbumArtContainer.style.backgroundColor = 'transparent'; // Remove placeholder bg
+            }
+
+        } else {
+            albumArtContainer.classList.remove('visible');
+        }
     }
 
     function processLrcFile(file) {
@@ -640,12 +860,12 @@ window.onload = () => {
         //     return;
         // }
 
-        switch (e.key.toLowerCase()) {
-            case 'o':
+        switch (e.code) {
+            case 'KeyO':
                 e.preventDefault();
                 musicFileInput.click();
                 break;
-            case 'h':
+            case 'KeyH':
                 e.preventDefault();
                 if (uiContainer.classList.contains('hidden')) {
                     uiContainer.classList.remove('hidden');
@@ -653,34 +873,39 @@ window.onload = () => {
                     // Optionally, decide if visualsPanel should also re-open or remember its state
                     if (mainPageLogo) {
                         mainPageLogo.classList.remove('hidden-by-ui');
-                        mainPageLogo.style.pointerEvents = 'auto';
+                        // mainPageLogo.style.pointerEvents = 'auto'; // CSS handles this
                     }
+                    if (topLeftMobileControls) topLeftMobileControls.classList.remove('mobile-controls-hidden-by-ui');
+                    if (topRightMobileControls) topRightMobileControls.classList.remove('mobile-controls-hidden-by-ui');
+
                 } else {
                     visualsPanel.classList.add('hidden');
                     uiContainer.classList.add('hidden');
                     showUiButton.classList.remove('hidden');
                     if (mainPageLogo) mainPageLogo.classList.add('hidden-by-ui');
+                    if (topLeftMobileControls) topLeftMobileControls.classList.add('mobile-controls-hidden-by-ui');
+                    if (topRightMobileControls) topRightMobileControls.classList.add('mobile-controls-hidden-by-ui');
                 }
                 break;
-            case ' ': // Spacebar
+            case 'Space':
                 e.preventDefault();
                 if (audio.src) togglePlayPause();
                 break;
-            case 'arrowleft':
+            case 'ArrowLeft':
                 e.preventDefault();
                 if (audio.src) {
                     volumeSlider.value = Math.max(0, audio.volume - 0.05).toString();
                     setVolume();
                 }
                 break;
-            case 'arrowright':
+            case 'ArrowRight':
                 e.preventDefault();
                 if (audio.src) {
                     volumeSlider.value = Math.min(1, audio.volume + 0.05).toString();
                     setVolume();
                 }
                 break;
-            case 'arrowup':
+            case 'ArrowUp':
                 e.preventDefault();
                 if (audio.src && lyrics.length > 0 && currentLyricIndex > 0) {
                     isUserScrolling = false;
@@ -693,7 +918,7 @@ window.onload = () => {
                     updateLyricView(true);
                 }
                 break;
-            case 'arrowdown':
+            case 'ArrowDown':
                 e.preventDefault();
                 if (audio.src && lyrics.length > 0 && currentLyricIndex < lyrics.length - 1) {
                     isUserScrolling = false;
@@ -704,7 +929,7 @@ window.onload = () => {
                 } else if (audio.src && lyrics.length > 0 && currentLyricIndex === lyrics.length - 1) {
                 }
                 break;
-            case 'f': // Fullscreen toggle
+            case 'KeyF': // Fullscreen toggle
                 e.preventDefault();
                 if (!document.fullscreenElement) {
                     document.documentElement.requestFullscreen();
@@ -717,6 +942,33 @@ window.onload = () => {
         }
     }
 
+    function setupCollapsibles() {
+        const triggers = document.querySelectorAll('.collapsible-trigger');
+        triggers.forEach(trigger => {
+            const targetId = trigger.getAttribute('aria-controls');
+            const target = document.getElementById(targetId);
+
+            if (target) {
+                // Set initial aria-hidden for target based on trigger's initial aria-expanded
+                const initiallyExpanded = trigger.getAttribute('aria-expanded') === 'true';
+                target.setAttribute('aria-hidden', String(!initiallyExpanded));
+
+                if (initiallyExpanded) { // If meant to be initially expanded (not for this use case)
+                    trigger.classList.add('expanded');
+                    target.classList.add('expanded');
+                }
+
+                trigger.addEventListener('click', () => {
+                    const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+                    trigger.setAttribute('aria-expanded', String(!isExpanded));
+                    target.setAttribute('aria-hidden', String(isExpanded)); // If it was expanded, it will be hidden
+
+                    trigger.classList.toggle('expanded');
+                    target.classList.toggle('expanded');
+                });
+            }
+        });
+    }
     // --- 5. INITIALIZATION ---
     visualizer.init();
     setupEventListeners();
@@ -724,6 +976,7 @@ window.onload = () => {
     visualizer.onResize(); // Call resize once to set initial state
     animate();
 
+    setupCollapsibles();
     // Initialize dataset attributes and button states based on initial JS state
     document.body.dataset.layout = document.querySelector('.layout-button.active')?.dataset.layout || 'text-center';
     document.body.dataset.wordAnimation = isWordByWordAnimationEnabled ? 'on' : 'off'; // 'off' by default
@@ -731,6 +984,7 @@ window.onload = () => {
     
     if (toggleLinesModeButton) toggleLinesModeButton.classList.toggle('active', isLinesModeEnabled); // Active by default
     if (toggleWordAnimationButton) toggleWordAnimationButton.classList.toggle('active', isWordByWordAnimationEnabled); // Inactive by default
+    if (toggleAlbumArtButton) toggleAlbumArtButton.classList.toggle('active', isAlbumArtVisibleSetting); // Active by default
     
     // Initially hide the main page logo if UI is hidden by default (it's not, but good practice)
     // and set its interactivity based on UI visibility.
