@@ -883,7 +883,7 @@ window.onload = () => {
         currentTimeEl.textContent = formatTime(audio.currentTime);
 
         // Update Media Session position state
-        if ('mediaSession' in navigator && audio.src && isFinite(audio.duration) && !audio.paused) {
+        if ('mediaSession' in navigator && audio.src && isFinite(audio.duration)) {
             navigator.mediaSession.setPositionState?.({ duration: audio.duration, playbackRate: audio.playbackRate, position: audio.currentTime });
         }
     }
@@ -891,10 +891,17 @@ window.onload = () => {
     function setDuration() { totalDurationEl.textContent = formatTime(audio.duration); }
     function setProgress(e) { if(isFinite(audio.duration)) audio.currentTime = (e.offsetX / progressBar.clientWidth) * audio.duration; }
     function toggleMute() {
+        if (isFinite(audio.duration)) {
+            audio.currentTime = (e.offsetX / progressBar.clientWidth) * audio.duration;
+            updateProgress(); // Update UI and media session
+        }
+    }
+    function toggleMute() {
         audio.muted = !audio.muted;
         volumeSlider.value = audio.muted ? 0 : audio.volume;
         updateVolumeIcon();
     }
+
     function setVolume() {
         audio.volume = volumeSlider.value;
         audio.muted = volumeSlider.value == 0;
@@ -903,6 +910,11 @@ window.onload = () => {
     function updateVolumeIcon() {
         volumeIcon.classList.toggle('hidden', audio.muted || audio.volume === 0);
         volumeMuteIcon.classList.toggle('hidden', !audio.muted && audio.volume > 0);
+    }
+
+    function setDuration() {
+        totalDurationEl.textContent = formatTime(audio.duration);
+        updateProgress(); // Ensure media session gets duration info ASAP and updates position
     }
     
     function handleGlobalKeyDown(e) {
@@ -963,10 +975,12 @@ window.onload = () => {
                     isUserScrolling = false;
                     clearTimeout(scrollTimeout);
                     lyricsList.style.transition = 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
-                    audio.currentTime = lyrics[currentLyricIndex - 1].time;
+                    audio.currentTime = lyrics[currentLyricIndex - 1].time; // Seek
+                    updateProgress(); // Update media session
                     updateLyricView(true);
                 } else if (audio.src && lyrics.length > 0 && currentLyricIndex === 0) {
-                    audio.currentTime = 0; // Or lyrics[0].time if you prefer to stick to the first lyric
+                    audio.currentTime = 0; // Seek to beginning
+                    updateProgress(); // Update media session
                     updateLyricView(true);
                 }
                 break;
@@ -976,7 +990,8 @@ window.onload = () => {
                     isUserScrolling = false;
                     clearTimeout(scrollTimeout);
                     lyricsList.style.transition = 'transform 0.6s cubic-bezier(0.25, 1, 0.5, 1)';
-                    audio.currentTime = lyrics[currentLyricIndex + 1].time;
+                    audio.currentTime = lyrics[currentLyricIndex + 1].time; // Seek
+                    updateProgress(); // Update media session
                     updateLyricView(true);
                 } else if (audio.src && lyrics.length > 0 && currentLyricIndex === lyrics.length - 1) {
                 }
@@ -991,6 +1006,21 @@ window.onload = () => {
                     }
                 }
                 break;
+        }
+    }
+
+    function updatePlayPauseIcon() {
+        const isPaused = audio.paused;
+        playIcon.classList.toggle('hidden', !isPaused);
+        pauseIcon.classList.toggle('hidden', isPaused);
+
+        if ('mediaSession' in navigator) {
+            if (audio.src) { // Only update if a song is loaded
+                navigator.mediaSession.playbackState = isPaused ? "paused" : "playing";
+                updateProgress(); // Update media session position state
+            } else {
+                navigator.mediaSession.playbackState = "none";
+            }
         }
     }
 
