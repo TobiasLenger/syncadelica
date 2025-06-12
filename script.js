@@ -616,6 +616,22 @@ window.onload = () => {
             navigator.mediaSession.setActionHandler('pause', () => {
                 if (audio.src) audio.pause();
             });
+            navigator.mediaSession.setActionHandler('seekto', (details) => {
+                if (audio.src && isFinite(audio.duration) && details.seekTime !== undefined) {
+                    audio.currentTime = details.seekTime;
+                    updateProgress(); // Update UI and media session state
+                }
+            });
+            navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+                const skipTime = details.seekOffset || 10; // Default to 10s
+                if (audio.src) audio.currentTime = Math.max(audio.currentTime - skipTime, 0);
+                updateProgress();
+            });
+            navigator.mediaSession.setActionHandler('seekforward', (details) => {
+                const skipTime = details.seekOffset || 10; // Default to 10s
+                if (audio.src && isFinite(audio.duration)) audio.currentTime = Math.min(audio.currentTime + skipTime, audio.duration);
+                updateProgress();
+            });
             // Note: previoustrack, nexttrack, seekbackward, seekforward could be added
             // if corresponding functionality exists (e.g., playlist, finer seeking).
             // For now, play/pause are the most relevant.
@@ -855,21 +871,6 @@ window.onload = () => {
         });
     }
 
-    function togglePlayPause() { if (audio.paused) audio.play(); else audio.pause(); }
-    function updatePlayPauseIcon() {
-        const isPaused = audio.paused;
-        playIcon.classList.toggle('hidden', !isPaused);
-        pauseIcon.classList.toggle('hidden', isPaused);
-
-        if ('mediaSession' in navigator) {
-            if (audio.src) { // Only update if a song is loaded
-                navigator.mediaSession.playbackState = isPaused ? "paused" : "playing";
-            } else {
-                navigator.mediaSession.playbackState = "none";
-            }
-        }
-    }
-
     function formatTime(seconds) {
         if (isNaN(seconds)) return "0:00";
         const m = Math.floor(seconds / 60);
@@ -888,20 +889,14 @@ window.onload = () => {
         }
     }
 
-    function setDuration() { totalDurationEl.textContent = formatTime(audio.duration); }
-    function setProgress(e) { if(isFinite(audio.duration)) audio.currentTime = (e.offsetX / progressBar.clientWidth) * audio.duration; }
-    function toggleMute() {
+    function setProgress(e) {
         if (isFinite(audio.duration)) {
             audio.currentTime = (e.offsetX / progressBar.clientWidth) * audio.duration;
             updateProgress(); // Update UI and media session
         }
     }
-    function toggleMute() {
-        audio.muted = !audio.muted;
-        volumeSlider.value = audio.muted ? 0 : audio.volume;
-        updateVolumeIcon();
-    }
 
+    // This toggleMute is correct, the one above was an error / duplicate
     function setVolume() {
         audio.volume = volumeSlider.value;
         audio.muted = volumeSlider.value == 0;
@@ -912,6 +907,7 @@ window.onload = () => {
         volumeMuteIcon.classList.toggle('hidden', !audio.muted && audio.volume > 0);
     }
 
+    // This setDuration is correct, the one above was incomplete
     function setDuration() {
         totalDurationEl.textContent = formatTime(audio.duration);
         updateProgress(); // Ensure media session gets duration info ASAP and updates position
@@ -1009,6 +1005,8 @@ window.onload = () => {
         }
     }
 
+    function togglePlayPause() { if (audio.src && audio.paused) audio.play(); else if (audio.src) audio.pause(); }
+    // This updatePlayPauseIcon is correct, the one removed earlier was incomplete
     function updatePlayPauseIcon() {
         const isPaused = audio.paused;
         playIcon.classList.toggle('hidden', !isPaused);
@@ -1022,6 +1020,13 @@ window.onload = () => {
                 navigator.mediaSession.playbackState = "none";
             }
         }
+    }
+
+    // This toggleMute is correct, the one removed earlier was an error
+    function toggleMute() {
+        audio.muted = !audio.muted;
+        volumeSlider.value = audio.muted ? 0 : audio.volume;
+        updateVolumeIcon();
     }
 
     function setupCollapsibles() {
