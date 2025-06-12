@@ -143,6 +143,12 @@ window.onload = () => {
                 playerAlbumArt.style.display = 'none';
                 playerAlbumArtContainer.style.backgroundColor = '#2c2c2c'; // Restore placeholder bg
             }
+            // Clear Media Session metadata
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = null;
+                // Playback state will be updated by play/pause events
+                // No need to set action handlers again, they persist.
+            }
         }
     }
 
@@ -601,6 +607,20 @@ window.onload = () => {
         audio.addEventListener('loadedmetadata', setDuration);
         progressBar.addEventListener('click', setProgress);
         volumeBtn.addEventListener('click', toggleMute);
+
+        // Media Session API Setup
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.setActionHandler('play', () => {
+                if (audio.src) audio.play();
+            });
+            navigator.mediaSession.setActionHandler('pause', () => {
+                if (audio.src) audio.pause();
+            });
+            // Note: previoustrack, nexttrack, seekbackward, seekforward could be added
+            // if corresponding functionality exists (e.g., playlist, finer seeking).
+            // For now, play/pause are the most relevant.
+        }
+
         volumeSlider.addEventListener('input', setVolume);
 
         if (gotItButton && greetingWindow && dontShowGreetingCheckbox) {
@@ -694,6 +714,17 @@ window.onload = () => {
                 const finalTitle = title || parsedFilename.title || 'Unknown Title';
                 const finalArtist = artist || parsedFilename.artist || 'Unknown Artist';
 
+                if ('mediaSession' in navigator) {
+                    const artwork = [];
+                    if (tag.tags.picture) {
+                        const base64String = tag.tags.picture.data.reduce((acc, byte) => acc + String.fromCharCode(byte), '');
+                        const imageUrl = `data:${tag.tags.picture.format};base64,${window.btoa(base64String)}`;
+                        artwork.push({ src: imageUrl, sizes: '512x512', type: tag.tags.picture.format }); // Adjust sizes as needed
+                    }
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: finalTitle, artist: finalArtist, album: tag.tags.album || '', artwork: artwork
+                    });
+                }
                 displayAlbumArt(tag.tags.picture, finalTitle, finalArtist);
                 songTitleEl.textContent = finalTitle;
                 songArtistEl.textContent = finalArtist;
@@ -716,6 +747,11 @@ window.onload = () => {
                 albumArtContainer.classList.remove('visible');
                 songTitleEl.textContent = finalTitle;
                 songArtistEl.textContent = finalArtist;
+                if ('mediaSession' in navigator) {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: finalTitle, artist: finalArtist, album: '', artwork: []
+                    });
+                }
                 await searchAndApplyLyrics(finalArtist, finalTitle);
             }
         });
@@ -821,9 +857,19 @@ window.onload = () => {
 
     function togglePlayPause() { if (audio.paused) audio.play(); else audio.pause(); }
     function updatePlayPauseIcon() {
-        playIcon.classList.toggle('hidden', !audio.paused);
-        pauseIcon.classList.toggle('hidden', audio.paused);
+        const isPaused = audio.paused;
+        playIcon.classList.toggle('hidden', !isPaused);
+        pauseIcon.classList.toggle('hidden', isPaused);
+
+        if ('mediaSession' in navigator) {
+            if (audio.src) { // Only update if a song is loaded
+                navigator.mediaSession.playbackState = isPaused ? "paused" : "playing";
+            } else {
+                navigator.mediaSession.playbackState = "none";
+            }
+        }
     }
+
     function formatTime(seconds) {
         if (isNaN(seconds)) return "0:00";
         const m = Math.floor(seconds / 60);
@@ -835,7 +881,13 @@ window.onload = () => {
             progressFill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
         }
         currentTimeEl.textContent = formatTime(audio.currentTime);
+
+        // Update Media Session position state
+        if ('mediaSession' in navigator && audio.src && isFinite(audio.duration) && !audio.paused) {
+            navigator.mediaSession.setPositionState?.({ duration: audio.duration, playbackRate: audio.playbackRate, position: audio.currentTime });
+        }
     }
+
     function setDuration() { totalDurationEl.textContent = formatTime(audio.duration); }
     function setProgress(e) { if(isFinite(audio.duration)) audio.currentTime = (e.offsetX / progressBar.clientWidth) * audio.duration; }
     function toggleMute() {
