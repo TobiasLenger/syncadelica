@@ -31,14 +31,10 @@ window.onload = () => {
     const totalDurationEl = document.getElementById('total-duration');
     const progressBar = document.getElementById('progress-bar');
     const progressFill = document.getElementById('progress-fill');
-    const volumeBtn = document.getElementById('volume-btn');
-    const volumeIcon = document.getElementById('volume-icon');
-    const volumeMuteIcon = document.getElementById('volume-mute-icon');
     const songTitleEl = document.getElementById('song-title');
     const songArtistEl = document.getElementById('song-artist');
     const playerAlbumArt = document.getElementById('player-album-art');
     const playerAlbumArtContainer = document.getElementById('player-album-art-container');
-    const volumeSlider = document.getElementById('volume-slider');
     const reactivitySlider = document.getElementById('reactivity-slider');
     const greetingWindow = document.getElementById('greeting-window');
     const gotItButton = document.getElementById('got-it-button');
@@ -54,6 +50,7 @@ window.onload = () => {
     const searchInput = document.getElementById('search-input'); // New
     const searchSubmitButton = document.getElementById('search-submit-button'); // New
     const searchResultsContainer = document.getElementById('search-results-container'); // New
+    const searchClearButton = document.getElementById('search-clear-button'); // New
     const lyricsCountdownDisplay = document.getElementById('lyrics-countdown');
 
 
@@ -71,10 +68,53 @@ window.onload = () => {
     let isWordByWordAnimationEnabled = false;
     let isLinesModeEnabled = true; // Default: Lines Mode is ON (all lines visible, .passed style applies)
     let isAlbumArtVisibleSetting = true; // Default: Album art is enabled by setting
+    const BACKEND_API_URL = '/api'; // Adjusted for Vercel deployment
 
-    const BACKEND_API_URL = 'http://localhost:3000/api'; // Adjust if your backend runs elsewhere
+    // --- New Search State Variables ---
+    let currentSearchQuery = '';
+    let currentSearchPage = 1;
+    const SEARCH_RESULTS_PER_PAGE = 10; // Fetch 10 items per "page"
+    let isLoadingMoreSearchResults = false;
+    let canLoadMoreSearchResults = true;
+    // --- Search History State ---
+    const SEARCH_HISTORY_KEY = 'syncadelicaSearchHistory';
+    const MAX_SEARCH_HISTORY_ITEMS = 7;
+
 
     // --- 3. HELPER FUNCTIONS ---
+
+    /**
+     * Cleans a string intended for display (e.g., song title or artist)
+     * by removing common extraneous information like (Official Video), [Lyrics], etc.
+     * @param {string} str - The string to clean.
+     * @returns {string} The cleaned string.
+     */
+    function cleanDisplayString(str) {
+        if (typeof str !== 'string' || !str.trim()) return str || ''; // Return original if not string, or empty string if null/undefined
+        let name = str;
+
+        // Remove common bracketed/parenthesized suffixes and terms
+        const bracketPatterns = [
+            /\s*\[[^\]]*?(official|music|video|audio|lyric|visualizer|hq|hd|4k|explicit|clean|remaster|live|cover|remix|edit|version|instrumental|karaoke|topic|ft|feat|featuring)[^\]]*?\]\s*/gi,
+            /\s*\([^)]*?(official|music|video|audio|lyric|visualizer|hq|hd|4k|explicit|clean|remaster|live|cover|remix|edit|version|instrumental|karaoke|topic|ft|feat|featuring)[^)]*?\)\s*/gi,
+        ];
+        bracketPatterns.forEach(pattern => {
+            name = name.replace(pattern, " "); // Replace with a space to avoid merging words
+        });
+
+        // Remove standalone keywords common in YouTube titles, often outside brackets
+        const keywordPatterns = [
+            /\b(official music video|music video|official video|official audio|audio|lyric video|lyrics video|lyrics|lyric|visualizer|hd|4k|hq|explicit|clean|radio edit|remastered|remaster|album version|single version)\b/gi,
+            /\s*-\s*Topic\b/gi // Specifically for artist strings like "Artist Name - Topic"
+        ];
+        keywordPatterns.forEach(pattern => {
+            name = name.replace(pattern, " "); // Replace with a space
+        });
+
+        // Final cleanup of multiple spaces that might have been introduced
+        name = name.replace(/\s+/g, ' ').trim();
+        return name;
+    }
 
     /**
      * Sets a placeholder message in the lyrics container.
@@ -113,6 +153,49 @@ window.onload = () => {
         lyricsList.innerHTML = ''; // Ensure list is empty when placeholder is shown
     }
 
+    function checkAndApplyMarquee(textElement) {
+        if (!textElement) return;
+
+        const currentText = textElement.textContent || ""; // Get current full title
+
+        // 1. Reset: Clear previous content, remove class and custom property
+        textElement.innerHTML = ''; 
+        textElement.textContent = currentText; // Set as plain text to measure accurately
+
+        textElement.classList.remove('marquee-active-wrapper');
+        textElement.style.removeProperty('--marquee-scroll-distance');
+        textElement.style.removeProperty('animationDuration'); // Clear direct style if any
+
+        // 2. Check for overflow
+        // scrollWidth is the width of the content, clientWidth is the visible area width
+        if (textElement.scrollWidth > textElement.clientWidth) {
+            textElement.classList.add('marquee-active-wrapper');
+
+            // Sanitize text before inserting into innerHTML to prevent XSS
+            const escapedText = currentText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            textElement.innerHTML = `<span class="marquee-text-wrapper">${escapedText}</span>`;
+            
+            const marqueeSpan = textElement.querySelector('span.marquee-text-wrapper');
+            if (!marqueeSpan) return; // Should not happen
+            
+            // Calculate how much the inner span needs to move
+            const scrollDistance = marqueeSpan.scrollWidth - textElement.clientWidth;
+
+            if (scrollDistance > 0) {
+                textElement.style.setProperty('--marquee-scroll-distance', `${scrollDistance}px`);
+
+                const speed = 30; // pixels per second for marquee scroll
+                const duration = Math.max(3, scrollDistance / speed); // Minimum 3 seconds duration
+                marqueeSpan.style.animationDuration = `${duration}s`;
+            } else {
+                // Fallback: if not overflowing after adding span (e.g. due to minor calc diffs), revert
+                textElement.textContent = currentText; // Revert to plain text
+                textElement.classList.remove('marquee-active-wrapper');
+            }
+        }
+        // If not overflowing, textElement.textContent is already currentText, and no class/style is applied.
+    }
+
     function resetLyrics(keepSongInfo = false) {
         lyrics = [];
         lyricElements = [];
@@ -128,8 +211,10 @@ window.onload = () => {
         }
 
         lyricsList.innerHTML = '';
-        songTitleEl.textContent = 'No song loaded';
-        songArtistEl.textContent = '';
+        if (songTitleEl) songTitleEl.textContent = 'No song loaded';
+        if (songArtistEl) songArtistEl.textContent = '';
+        if (songTitleEl) checkAndApplyMarquee(songTitleEl); // Clear marquee
+
         currentY = lyricsContainer.clientHeight / 2;
         lyricsList.style.transition = 'none';
         lyricsList.style.transform = `translateY(${currentY}px)`;
@@ -143,8 +228,9 @@ window.onload = () => {
         albumArtContainer.classList.remove('visible');
 
         if (!keepSongInfo) {
-            songTitleEl.textContent = 'No song loaded';
-            songArtistEl.textContent = '';
+            if (songTitleEl) songTitleEl.textContent = 'No song loaded';
+            if (songArtistEl) songArtistEl.textContent = '';
+            if (songTitleEl) checkAndApplyMarquee(songTitleEl); // Clear marquee
             // Reset player bar album art only if not keeping song info
             if (playerAlbumArt && playerAlbumArtContainer) {
                 playerAlbumArt.src = '';
@@ -295,14 +381,35 @@ window.onload = () => {
                 let lineEndTime = (currentLyricIndex < lyrics.length - 1) ? lyrics[currentLyricIndex + 1].time : audio.duration;
                 if (isNaN(lineEndTime) || lineEndTime <= lineStartTime) lineEndTime = lineStartTime + 5; // Default 5s for last/problematic line
                 let lineDuration = lineEndTime - lineStartTime;
-                if (lineDuration <= 0) lineDuration = 0.01; // Ensure positive, non-zero duration for calculation
+                if (lineDuration <= 0) lineDuration = 0.05; // Ensure a small positive duration
 
                 const numWords = activeElement.wordSpans.length;
-                const estimatedTimePerWord = lineDuration / numWords;
+                let timePerWord;
+
+                if (numWords > 0) {
+                    const TYPICAL_TIME_PER_WORD = 0.3; // Target time for each word to be "active" before next reveals (seconds)
+                                                       // This matches the CSS animation duration for a sequential reveal.
+                    const calculatedTimePerWordForLine = lineDuration / numWords;
+
+                    // If the typical pace would make the words exceed the line's actual duration,
+                    // we must speed up to fit the line's timing.
+                    if (numWords * TYPICAL_TIME_PER_WORD > lineDuration) {
+                        timePerWord = calculatedTimePerWordForLine;
+                    } else {
+                        // Otherwise, use the typical pace. Words might finish revealing "early"
+                        // within the line's total duration, which can feel more natural.
+                        timePerWord = TYPICAL_TIME_PER_WORD;
+                    }
+                    // Ensure a minimum effective time per word to prevent extremely fast flashing
+                    // especially if calculatedTimePerWordForLine is very small.
+                    timePerWord = Math.max(0.05, timePerWord); // Minimum 50ms per word step
+                } else {
+                    timePerWord = lineDuration; // Should not happen if numWords > 0 check is there
+                }
 
                 let currentWordToRevealIndex = -1; // Default: no words revealed yet
-                if (timeIntoLine >= 0 && numWords > 0 && estimatedTimePerWord > 0) {
-                    currentWordToRevealIndex = Math.floor(timeIntoLine / estimatedTimePerWord);
+                if (timeIntoLine >= 0 && numWords > 0 && timePerWord > 0) { // Check timePerWord > 0
+                    currentWordToRevealIndex = Math.floor(timeIntoLine / timePerWord);
                     currentWordToRevealIndex = Math.max(-1, Math.min(numWords - 1, currentWordToRevealIndex));
                 }
 
@@ -329,39 +436,209 @@ window.onload = () => {
         }
     }
 
-    async function performSearch(query) {
-        if (!query || query.trim() === '') {
+    // --- Search History Functions ---
+    function getSearchHistory() {
+        const history = localStorage.getItem(SEARCH_HISTORY_KEY);
+        return history ? JSON.parse(history) : [];
+    }
+
+    function addSearchToHistory(query) {
+        if (!query || query.trim() === '') return;
+        let history = getSearchHistory();
+        const lowerCaseQuery = query.toLowerCase();
+        // Remove existing entry if present to move it to the top
+        history = history.filter(item => item.toLowerCase() !== lowerCaseQuery);
+        // Add new query to the beginning
+        history.unshift(query);
+        // Limit history size
+        if (history.length > MAX_SEARCH_HISTORY_ITEMS) {
+            history = history.slice(0, MAX_SEARCH_HISTORY_ITEMS);
+        }
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+    }
+
+    function removeSearchFromHistory(queryToRemove) {
+        let history = getSearchHistory();
+        const lowerCaseQueryToRemove = queryToRemove.toLowerCase();
+        history = history.filter(item => item.toLowerCase() !== lowerCaseQueryToRemove);
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+        // Re-render history if it's currently visible and input is empty
+        if (searchInput.value.trim() === '' && searchResultsContainer.querySelector('.search-history-list')) {
+            renderSearchHistory();
+        }
+    }
+    function renderSearchHistory() {
+        const history = getSearchHistory();
+        searchResultsContainer.innerHTML = ''; // Clear previous content
+
+        if (history.length === 0) {
+            searchResultsContainer.innerHTML = '<p class="search-placeholder">No search history yet. Start searching!</p>';
+            return;
+        }
+
+        const historyHeader = document.createElement('h3');
+        historyHeader.className = 'search-history-header';
+        historyHeader.textContent = 'Recent Searches';
+        searchResultsContainer.appendChild(historyHeader);
+
+        const ul = document.createElement('ul');
+        ul.className = 'search-history-list';
+
+        history.forEach(query => {
+            const li = document.createElement('li');
+            li.className = 'search-history-item';
+
+            const textSpan = document.createElement('span');
+            textSpan.className = 'search-history-item-text';
+            textSpan.textContent = query;
+            textSpan.title = `Search for: ${query}`;
+            textSpan.addEventListener('click', () => {
+                searchInput.value = query;
+                performSearch(query);
+            });
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-history-item-btn';
+            deleteBtn.innerHTML = '&times;'; // HTML entity for 'x'
+            deleteBtn.title = `Remove "${query}" from history`;
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent li click (search) event from firing
+                removeSearchFromHistory(query);
+            });
+
+            li.appendChild(textSpan);
+            li.appendChild(deleteBtn);
+            ul.appendChild(li);
+        });
+        searchResultsContainer.appendChild(ul);
+    }
+
+    async function performSearch(queryValue) { // Renamed query to queryValue to avoid conflict with currentSearchQuery
+        if (!queryValue || queryValue.trim() === '') {
             searchResultsContainer.innerHTML = '<p class="search-placeholder">Please enter a search term.</p>';
             return;
         }
 
-        searchResultsContainer.innerHTML = `<p class="search-placeholder">Searching for "${query}"...</p>`;
+        currentSearchQuery = queryValue.trim();
+        addSearchToHistory(currentSearchQuery); // Add to history
+        currentSearchPage = 1;
+        canLoadMoreSearchResults = true;
+        isLoadingMoreSearchResults = false; // Reset loading lock
+
+        // Show initial loader for a new search
+        searchResultsContainer.innerHTML = `
+            <div class="search-loading-indicator">
+                <div class="search-loader"></div>
+                <p>Searching for "${currentSearchQuery}"...</p>
+            </div>`;
+        
+        // Remove any existing "load more" indicator from previous searches
+        const existingLoadMoreIndicator = searchResultsContainer.querySelector('.search-results-loading-more');
+        if (existingLoadMoreIndicator) {
+            existingLoadMoreIndicator.remove();
+        }
 
         try {
-            const response = await fetch(`${BACKEND_API_URL}/search?q=${encodeURIComponent(query)}`);
+            await loadMoreSearchResults(); // Fetch the first page
+        } catch (e) {
+            console.error("Error during initial search operation:", e);
+            // Error display is handled within loadMoreSearchResults via searchResultsContainer.innerHTML
+        }
+    }
+
+    async function loadMoreSearchResults() {
+        if (isLoadingMoreSearchResults || !canLoadMoreSearchResults || !currentSearchQuery) {
+            return;
+        }
+        isLoadingMoreSearchResults = true;
+        let loadMoreIndicatorElement;
+
+        if (currentSearchPage > 1) { // Only show "load more" indicator for subsequent pages
+            loadMoreIndicatorElement = document.createElement('div');
+            loadMoreIndicatorElement.className = 'search-results-loading-more';
+            loadMoreIndicatorElement.innerHTML = `<div class="small-loader"></div> Loading more...`;
+            searchResultsContainer.appendChild(loadMoreIndicatorElement);
+            loadMoreIndicatorElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+
+        try {
+            const response = await fetch(`${BACKEND_API_URL}/search?q=${encodeURIComponent(currentSearchQuery)}&page=${currentSearchPage}&limit=${SEARCH_RESULTS_PER_PAGE}`);
+            
+            if (currentSearchPage === 1) { // Clear initial full-page loader only after first fetch attempt
+                const initialLoader = searchResultsContainer.querySelector('.search-loading-indicator');
+                if (initialLoader) initialLoader.remove();
+            }
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ message: 'Failed to fetch search results. Server returned an error.' }));
                 throw new Error(errorData.message || `Server error: ${response.status}`);
             }
-
             const results = await response.json();
 
             if (results && results.length > 0) {
-                renderSearchResults(results);
+                renderSearchResults(results, currentSearchPage === 1);
+                if (results.length < SEARCH_RESULTS_PER_PAGE) {
+                    canLoadMoreSearchResults = false;
+                    if (currentSearchPage > 1) {
+                        const noMoreResultsEl = document.createElement('p');
+                        noMoreResultsEl.className = 'search-placeholder';
+                        noMoreResultsEl.textContent = 'No more results.';
+                        noMoreResultsEl.style.paddingTop = '10px';
+                        searchResultsContainer.appendChild(noMoreResultsEl);
+                    }
+                }
+                currentSearchPage++;
             } else {
-                searchResultsContainer.innerHTML = `<p class="search-placeholder">No results found for "${query}".</p>`;
+                canLoadMoreSearchResults = false;
+                if (currentSearchPage === 1) {
+                    searchResultsContainer.innerHTML = `<p class="search-placeholder">No results found for "${currentSearchQuery}".</p>`;
+                } else {
+                    const noMoreResultsEl = document.createElement('p');
+                    noMoreResultsEl.className = 'search-placeholder';
+                    noMoreResultsEl.textContent = 'No more results.';
+                    noMoreResultsEl.style.paddingTop = '10px';
+                    searchResultsContainer.appendChild(noMoreResultsEl);
+                }
             }
         } catch (error) {
             console.error('Search failed:', error);
-            searchResultsContainer.innerHTML = `<p class="search-placeholder">Search failed: ${error.message}. Please try again.</p>`;
+            canLoadMoreSearchResults = false;
+            if (currentSearchPage === 1) {
+                searchResultsContainer.innerHTML = `<p class="search-placeholder">Search failed: ${error.message}. Please try again.</p>`;
+            } else {
+                const errorMsgEl = document.createElement('p');
+                errorMsgEl.className = 'search-placeholder';
+                errorMsgEl.textContent = `Error loading more: ${error.message}`;
+                errorMsgEl.style.color = 'var(--error-color, red)'; // Use CSS var if defined, else red
+                searchResultsContainer.appendChild(errorMsgEl);
+            }
+        } finally {
+            if (loadMoreIndicatorElement) {
+                loadMoreIndicatorElement.remove();
+            }
+            isLoadingMoreSearchResults = false;
         }
     }
 
-    function renderSearchResults(results) {
-        searchResultsContainer.innerHTML = ''; // Clear previous results or placeholder
-
-        const ul = document.createElement('ul');
-        ul.className = 'search-results-list';
+    function renderSearchResults(results, isInitialLoad) {
+        let ul;
+        if (isInitialLoad) {
+            searchResultsContainer.innerHTML = ''; // Clear for the very first batch of a new search
+            if (results.length === 0) { // Should be handled by loadMoreSearchResults, but defensive
+                searchResultsContainer.innerHTML = `<p class="search-placeholder">No results found for "${currentSearchQuery}".</p>`;
+                return;
+            }
+            ul = document.createElement('ul');
+            ul.className = 'search-results-list';
+            searchResultsContainer.appendChild(ul);
+        } else {
+            ul = searchResultsContainer.querySelector('.search-results-list');
+            if (!ul) { // Fallback, should ideally exist
+                ul = document.createElement('ul');
+                ul.className = 'search-results-list';
+                searchResultsContainer.appendChild(ul);
+            }
+        }
 
         results.forEach(result => {
             const li = document.createElement('li');
@@ -384,75 +661,51 @@ window.onload = () => {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                 </button>
             `;
-            // Add event listener for playing the track (placeholder for now)
             const playButton = li.querySelector('.search-result-play-button');
             if (playButton) {
                 playButton.addEventListener('click', async () => {
                     console.log('Play track from search:', result);
-                    // We use result.page to stream through our backend, not result.url directly
-                    if (result.page) {
-                        resetLyrics(); // Clear existing lyrics and song info
+                    searchWindow.classList.add('hidden'); 
+                    if (result.youtubeUrl) {
+                        resetLyrics(); 
                         setPlaceholderMessage(`Loading "${result.title}"...`, 'searching');
-
                         try {
-                            // 1. Fetch song details (including direct download URL and better album art)
-                            const detailsResponse = await fetch(`${BACKEND_API_URL}/song-details?page=${encodeURIComponent(result.page)}&artist=${encodeURIComponent(result.artist || '')}&title=${encodeURIComponent(result.title || '')}`);
-                            if (!detailsResponse.ok) {
-                                throw new Error(`Failed to fetch song details: ${detailsResponse.status}`);
-                            }
-                            const songDetails = await detailsResponse.json();
-
-                            if (!songDetails.downloadUrl) {
-                                alert("Could not retrieve a streamable URL for this track.");
-                                setPlaceholderMessage("Error loading track.", 'default');
-                                return;
-                            }
-
-                            // 2. Set audio source to stream via our backend, using the direct download URL
-                            audio.src = `${BACKEND_API_URL}/stream?url=${encodeURIComponent(songDetails.downloadUrl)}`;
+                            audio.src = `${BACKEND_API_URL}/stream?url=${encodeURIComponent(result.youtubeUrl)}`;
                             audio.load();
-                            audio.currentTime = 0; // Reset playback position for new song
+                            audio.currentTime = 0; 
                             await audio.play().catch(e => console.error("Error playing audio:", e));
                             setupAudioContext();
-
-                            songTitleEl.textContent = result.title || 'Unknown Title';
-                            songArtistEl.textContent = result.artist || 'Unknown Artist';
-
-                            // 3. Display album art (using the potentially better one from songDetails)
-                            displayAlbumArt(null, result.title, result.artist, songDetails.albumArtUrl);
-
-                            // 4. Attempt to fetch lyrics
+                            songTitleEl.textContent = cleanDisplayString(result.title || 'Unknown Title');
+                            songArtistEl.textContent = cleanDisplayString(result.artist || 'Unknown Artist');
+                            checkAndApplyMarquee(songTitleEl);
+                            displayAlbumArt(null, result.title, result.artist, result.albumArtUrl);
                             if (result.title && result.artist) {
                                 await searchAndApplyLyrics(result.artist, result.title);
                             } else {
                                 setPlaceholderMessage("Lyrics not available for this track.", 'default');
                             }
-                            // 5. Update Media Session API
                             if ('mediaSession' in navigator) {
-                                const artworkToUse = songDetails.albumArtUrl; // Strictly use art from songDetails
+                                const artworkToUse = result.albumArtUrl;
                                 navigator.mediaSession.metadata = new MediaMetadata({
-                                    title: result.title || 'Unknown Title',
-                                    artist: result.artist || 'Unknown Artist',
-                                    album: '', // Album info not available from search result yet
+                                    title: cleanDisplayString(result.title || 'Unknown Title'),
+                                    artist: cleanDisplayString(result.artist || 'Unknown Artist'),
+                                    album: '', 
                                     artwork: artworkToUse ? [{ src: artworkToUse, sizes: '512x512', type: 'image/jpeg' }] : []
                                 });
                             }
-
                         } catch (error) {
                             console.error("Error processing selected search track:", error);
                             setPlaceholderMessage(`Error loading: ${error.message}`, 'default');
-                            resetLyrics(); // Reset to a clean state on error
+                            resetLyrics(); 
                         }
                     } else {
-                        alert("No streamable URL found for this track.");
+                        alert("No YouTube URL found for this track.");
                         setPlaceholderMessage("Track information missing.", 'default');
                     }
-                    searchWindow.classList.add('hidden'); // Close search window after selection
                 });
             }
             ul.appendChild(li);
         });
-        searchResultsContainer.appendChild(ul);
     }
 
 
@@ -536,6 +789,7 @@ window.onload = () => {
                     // No song is considered loaded. Reset to the initial state.
                     songTitleEl.textContent = 'No song loaded';
                     songArtistEl.textContent = '';
+                    checkAndApplyMarquee(songTitleEl);
                     setPlaceholderMessage("Upload a song to begin.", 'default');
                 }
             }
@@ -543,6 +797,7 @@ window.onload = () => {
             // Album art visibility based on layout
             if (document.body.dataset.layout === 'text-center') {
                 albumArtContainer.classList.remove('visible'); // Always hide if centered
+                if (songTitleEl) checkAndApplyMarquee(songTitleEl); // Re-check marquee on layout change
             } else if (isAlbumArtVisibleSetting && albumArtContainer.querySelector('img')) {
                 albumArtContainer.classList.add('visible'); // Show if setting allows and art exists
             }
@@ -603,14 +858,71 @@ window.onload = () => {
 
 
     function parseFilename(filename) {
-        const cleanedName = filename.replace(/\.[^/.]+$/, "").replace(/_/g, " ").replace(/\s*\[.*?\]\s*/g, "").replace(/\s*\(.*?\)\s*/g, "").replace(/(official|lyric|video|audio|h[dq])/i, "").trim();
-        const match = cleanedName.match(/(.+?)\s*-\s*(.+)/);
-        if (match) return { artist: match[1].trim(), title: match[2].trim() };
-        return { artist: '', title: cleanedName };
+        let name = filename.replace(/\.[^/.]+$/, ""); // Remove file extension
+
+        // Normalize: underscores to spaces, then multiple spaces to one
+        name = name.replace(/_/g, " ").replace(/\s+/g, ' ').trim();
+
+        // Remove common bracketed/parenthesized suffixes and terms first.
+        // These patterns try to capture variations of (Official Video), [Lyrics], (feat. XYZ), etc.
+        // The non-greedy (.*?) helps avoid over-matching if multiple sets of () or [] exist.
+        const bracketPatterns = [
+            // Matches content within brackets: e.g., [Official Video], [feat. Artist]
+            /\s*\[(.*?(official|music|video|audio|lyric|visualizer|hq|hd|4k|explicit|clean|remaster|live|cover|remix|edit|version|instrumental|karaoke|topic|ft|feat|featuring)[^\]]*)\]\s*/gi,
+            // Matches content within parentheses: e.g., (Official Audio), (ft. Artist)
+            /\s*\((.*?(official|music|video|audio|lyric|visualizer|hq|hd|4k|explicit|clean|remaster|live|cover|remix|edit|version|instrumental|karaoke|topic|ft|feat|featuring)[^[)]*)\)\s*/gi,
+        ];
+        bracketPatterns.forEach(pattern => {
+            name = name.replace(pattern, " "); // Replace with a space to avoid merging words
+        });
+
+        // Remove standalone keywords common in YouTube titles.
+        // Using \b for word boundaries to avoid partial matches within actual artist/title names.
+        const keywordPatterns = [
+            /\b(official music video|music video|official video|official audio|audio|lyric video|lyrics video|lyrics|lyric|visualizer|hd|4k|hq|explicit|clean|radio edit|remastered|remaster|instrumental|karaoke|original mix|extended mix|radio mix|club mix|album version|single version|theme song|soundtrack|ost)\b/gi,
+            // Remove "ft. Artist", "feat. Artist" etc., when not in brackets/parentheses.
+            // This looks for the pattern followed by a separator (like " - ") or end of string.
+            /\b(ft|feat|featuring)\b\.?\s+[\w\s&]+(?=\s*-|\s+\(|\s+\[|$)/gi,
+            // Remove YouTube's "- Topic" suffix
+            /-\s*Topic\b/gi
+        ];
+        keywordPatterns.forEach(pattern => {
+            name = name.replace(pattern, " "); // Replace with a space
+        });
+
+        // Final cleanup of spaces
+        name = name.replace(/\s+/g, ' ').trim();
+
+        // Attempt to split by " - " (a common artist-title separator)
+        const parts = name.split(/\s+-\s+/);
+        if (parts.length >= 2) {
+            const title = parts.pop().trim(); // Assume the last part is the title
+            const artist = parts.join(" - ").trim(); // Everything before is the artist
+            if (artist && title) return { artist, title };
+        }
+
+        // If " - " split fails or results in empty parts, return the whole cleaned name as title
+        return { artist: '', title: name || 'Unknown Title' };
     }
 
     async function fetchLyrics(artist, title) {
-        const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist)}&track_name=${encodeURIComponent(title)}`;
+        // Ensure inputs are strings and trimmed. The API call will handle URL encoding.
+        const cleanedArtist = String(artist || '').replace(/\s+/g, ' ').trim();
+        const cleanedTitle = String(title || '').replace(/\s+/g, ' ').trim();
+
+        if (!cleanedArtist && !cleanedTitle) { // If both are effectively empty, no point in searching.
+            console.warn('[API] FetchLyrics: Both artist and title are effectively empty after cleaning.', { artist, title });
+            return null;
+        }
+        // lrclib.net generally performs best with both artist and title.
+        // If one is missing, the chances of a good match are significantly lower.
+        if (!cleanedArtist || !cleanedTitle) {
+             console.warn(`[API] FetchLyrics: Artist or Title is effectively empty. Artist: "${cleanedArtist}", Title: "${cleanedTitle}"`);
+             // Depending on the API's strictness, you might return null here.
+             // For lrclib, it's often better to have both.
+        }
+
+        const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(cleanedArtist)}&track_name=${encodeURIComponent(cleanedTitle)}`;
         try {
             const response = await fetch(url);
             if (!response.ok) return null;
@@ -631,7 +943,10 @@ window.onload = () => {
     }
 
     function setupEventListeners() {
-        window.addEventListener('resize', () => visualizer.onResize());
+        window.addEventListener('resize', () => {
+            visualizer.onResize();
+            if (songTitleEl) checkAndApplyMarquee(songTitleEl); // Check marquee on resize
+        });
         hideUiButton.addEventListener('click', () => {
             visualsPanel.classList.add('hidden');
             uiContainer.classList.add('hidden');
@@ -667,12 +982,26 @@ window.onload = () => {
         // Swapped functionality: toggleVisualsButton now opens search
         if (toggleVisualsButton && searchWindow) {
             toggleVisualsButton.addEventListener('click', () => {
+                console.log("Desktop search button clicked");
                 searchWindow.classList.remove('hidden');
-                searchInput.focus(); // Auto-focus the search input
+                searchInput.focus();
+                if (searchInput.value.trim() === '') { // Show history if input is empty
+                    renderSearchHistory();
+                }
             });
         }
         // Top mobile toggle visuals button
-        if (toggleVisualsButtonTop) toggleVisualsButtonTop.addEventListener('click', () => visualsPanel.classList.toggle('hidden'));
+        if (toggleVisualsButtonTop) {
+             toggleVisualsButtonTop.addEventListener('click', () => {
+                visualsPanel.classList.toggle('hidden');
+                // If opening visuals panel, ensure search window is hidden if it was somehow open
+                // (though typically they are mutually exclusive in terms of user focus)
+                if (!visualsPanel.classList.contains('hidden') && searchWindow && !searchWindow.classList.contains('hidden')) {
+                    // searchWindow.classList.add('hidden'); // Optional: close search if opening visuals
+                }
+            });
+        }
+
 
         uploadMusicButton.addEventListener('click', () => musicFileInput.click());
         if (uploadMusicButtonTop) uploadMusicButtonTop.addEventListener('click', () => musicFileInput.click());
@@ -695,6 +1024,7 @@ window.onload = () => {
             } else {
                 albumArtContainer.classList.remove('visible'); // Hide if setting disallows
             }
+            if (songTitleEl) checkAndApplyMarquee(songTitleEl); // Re-check marquee on layout change
 
             // Disable/enable album art toggle based on layout
             if (toggleAlbumArtButton) {
@@ -767,7 +1097,6 @@ window.onload = () => {
         audio.addEventListener('canplay', () => { // Clears buffering when ready to play after waiting/seeking
             if (progressBar) progressBar.classList.remove('buffering');
         });
-        volumeBtn.addEventListener('click', toggleMute);
 
         // Media Session API Setup
         if ('mediaSession' in navigator) {
@@ -797,8 +1126,6 @@ window.onload = () => {
             // if corresponding functionality exists (e.g., playlist, finer seeking).
             // For now, play/pause are the most relevant.
         }
-
-        volumeSlider.addEventListener('input', setVolume);
 
         if (gotItButton && greetingWindow && dontShowGreetingCheckbox) {
             gotItButton.addEventListener('click', () => {
@@ -876,15 +1203,18 @@ window.onload = () => {
         // openSearchWindowButton now toggles visuals panel
         if (openSearchWindowButton && searchWindow) {
             // openSearchWindowButton.addEventListener('click', () => {
-            //     searchWindow.classList.remove('hidden');
-            //     searchInput.focus(); // Auto-focus the search input
+            // visualsPanel.classList.toggle('hidden'); // This is the settings icon button
             // });
-            openSearchWindowButton.addEventListener('click', () => visualsPanel.classList.toggle('hidden'));
+            // The `openSearchWindowButton` (settings icon) should toggle the visuals panel.
+            openSearchWindowButton.addEventListener('click', () => visualsPanel.classList.toggle('hidden')); 
         }
         if (openSearchWindowButtonTop && searchWindow) { // Mobile search button
             openSearchWindowButtonTop.addEventListener('click', () => {
                 searchWindow.classList.remove('hidden');
                 searchInput.focus();
+                if (searchInput.value.trim() === '') { // Show history if input is empty
+                    renderSearchHistory();
+                }
             });
         }
 
@@ -899,7 +1229,47 @@ window.onload = () => {
         }
 
         if (searchInput) {
-            searchInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') performSearch(searchInput.value); });
+            searchInput.addEventListener('keypress', (e) => { 
+                if (e.key === 'Enter') performSearch(searchInput.value); 
+            });
+            // Modified event listener for search input
+            searchInput.addEventListener('input', () => {
+                const hasText = searchInput.value.length > 0;
+                if (searchClearButton) {
+                    searchClearButton.classList.toggle('visible', hasText);
+                }
+
+                const query = searchInput.value.trim();
+                if (query === '') {
+                    renderSearchHistory();
+                } else {
+                    // If user is typing and history was shown, clear it for the default placeholder.
+                    if (searchResultsContainer.querySelector('.search-history-list')) {
+                        searchResultsContainer.innerHTML = '<p class="search-placeholder">Press Enter or click search to find music.</p>';
+                    }
+                }
+            });
+        }
+
+        // Event listener for the search clear button
+        if (searchClearButton && searchInput) {
+            searchClearButton.addEventListener('click', () => {
+                searchInput.value = '';
+                searchClearButton.classList.remove('visible'); // Hide the button
+                searchInput.focus(); // Focus back on the input
+                renderSearchHistory(); // Show history or placeholder
+            });
+        }
+
+        if (searchResultsContainer) {
+            searchResultsContainer.addEventListener('scroll', () => {
+                const threshold = 100; // Load 100px before reaching the absolute bottom
+                if (searchResultsContainer.scrollTop + searchResultsContainer.clientHeight >= searchResultsContainer.scrollHeight - threshold) {
+                    if (canLoadMoreSearchResults && !isLoadingMoreSearchResults && currentSearchQuery) {
+                        loadMoreSearchResults();
+                    }
+                }
+            });
         }
     }
 
@@ -929,37 +1299,42 @@ window.onload = () => {
                         artwork.push({ src: imageUrl, sizes: '512x512', type: tag.tags.picture.format }); // Adjust sizes as needed
                     }
                     navigator.mediaSession.metadata = new MediaMetadata({
-                        title: finalTitle, artist: finalArtist, album: tag.tags.album || '', artwork: artwork
+                        title: cleanDisplayString(finalTitle), artist: cleanDisplayString(finalArtist), album: tag.tags.album || '', artwork: artwork
                     });
                 }
                 displayAlbumArt(tag.tags.picture, finalTitle, finalArtist);
-                songTitleEl.textContent = finalTitle;
-                songArtistEl.textContent = finalArtist;
+                songTitleEl.textContent = cleanDisplayString(finalTitle);
+                songArtistEl.textContent = cleanDisplayString(finalArtist);
+                checkAndApplyMarquee(songTitleEl);
                 if (finalTitle !== 'Unknown Title' && finalArtist !== 'Unknown Artist') {
                     await searchAndApplyLyrics(finalArtist, finalTitle);
                 } else {
                     // Fallback to filename parsing if tags are incomplete
                     const fromFilename = parseFilename(file.name);
-                    songTitleEl.textContent = fromFilename.title || 'Unknown Title';
-                    songArtistEl.textContent = fromFilename.artist || 'Unknown Artist';
+                    const titleFromFilename = cleanDisplayString(fromFilename.title || 'Unknown Title');
+                    const artistFromFilename = cleanDisplayString(fromFilename.artist || 'Unknown Artist');
+                    songTitleEl.textContent = titleFromFilename; // Already cleaned
+                    songArtistEl.textContent = artistFromFilename; // Already cleaned
+                    checkAndApplyMarquee(songTitleEl);
                     await searchAndApplyLyrics(fromFilename.artist, fromFilename.title);
                 }
             },
             onError: async () => {
                 const fromFilename = parseFilename(file.name);
-                const finalTitle = fromFilename.title || 'Unknown Title';
-                const finalArtist = fromFilename.artist || 'Unknown Artist';
+                const finalTitle = cleanDisplayString(fromFilename.title || 'Unknown Title');
+                const finalArtist = cleanDisplayString(fromFilename.artist || 'Unknown Artist');
 
                 albumArtContainer.innerHTML = ''; // Clear previous art
                 albumArtContainer.classList.remove('visible');
                 songTitleEl.textContent = finalTitle;
                 songArtistEl.textContent = finalArtist;
+                checkAndApplyMarquee(songTitleEl);
                 if ('mediaSession' in navigator) {
                     navigator.mediaSession.metadata = new MediaMetadata({
-                        title: finalTitle, artist: finalArtist, album: '', artwork: []
+                        title: finalTitle, artist: finalArtist, album: '', artwork: [] // Already cleaned
                     });
                 }
-                await searchAndApplyLyrics(finalArtist, finalTitle);
+                await searchAndApplyLyrics(fromFilename.artist, fromFilename.title); // Lyric search uses original parsed parts
             }
         });
     }
@@ -984,12 +1359,12 @@ window.onload = () => {
 
             const titleDiv = document.createElement('div');
             titleDiv.className = 'album-art-title';
-            titleDiv.textContent = title;
+            titleDiv.textContent = cleanDisplayString(title); // Clean for display here too
             artInfoDiv.appendChild(titleDiv);
 
             const artistDiv = document.createElement('div');
             artistDiv.className = 'album-art-artist';
-            artistDiv.textContent = artist;
+            artistDiv.textContent = cleanDisplayString(artist); // Clean for display here too
             artInfoDiv.appendChild(artistDiv);
 
             albumArtContainer.appendChild(artInfoDiv);
@@ -1082,7 +1457,12 @@ window.onload = () => {
     }
     function updateProgress() {
         if (isFinite(audio.duration)) {
-            progressFill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+            if (audio.duration > 0) {
+                progressFill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+            } else if (audio.currentTime === 0 && audio.duration === 0) {
+                // Handle case where both are 0 (e.g. initial state or after reset)
+                progressFill.style.width = '0%';
+            }
         }
         currentTimeEl.textContent = formatTime(audio.currentTime);
 
@@ -1104,25 +1484,10 @@ window.onload = () => {
             // Ensure offsetX is within the bounds of the progress bar [0, clientWidth]
             const boundedOffsetX = Math.max(0, Math.min(offsetX, progressBar.clientWidth));
             const newTime = (boundedOffsetX / progressBar.clientWidth) * audio.duration;
-            console.log('[setProgress] Calculated newTime:', newTime, 'from offsetX:', boundedOffsetX, 'clientWidth:', progressBar.clientWidth);
             audio.currentTime = newTime;
-            updateProgress();
         } else {
             console.warn('[setProgress] Audio is not seekable or duration is not finite. Duration:', audio.duration, 'Seekable:', audio.seekable);
         }
-    }
-
-    // This toggleMute is correct, the one above was an error / duplicate
-    function setVolume() {
-        audio.volume = parseFloat(volumeSlider.value); // Ensure value is a number
-        // Do NOT set audio.muted based on volume here. Let the volume slider control volume,
-        // and the mute button control mute state independently.
-        // The updateVolumeIcon function handles the visual representation.
-        updateVolumeIcon();
-    }
-    function updateVolumeIcon() {
-        volumeIcon.classList.toggle('hidden', audio.muted || audio.volume === 0);
-        volumeMuteIcon.classList.toggle('hidden', !audio.muted && audio.volume > 0);
     }
 
     // This setDuration is correct, the one above was incomplete
@@ -1205,18 +1570,10 @@ window.onload = () => {
                 }
                 break;
             case 'ArrowLeft':
-                e.preventDefault();
-                if (audio.src) {
-                    volumeSlider.value = Math.max(0, audio.volume - 0.05).toString();
-                    setVolume();
-                }
+                // Volume control removed
                 break;
             case 'ArrowRight':
-                e.preventDefault();
-                if (audio.src) {
-                    volumeSlider.value = Math.min(1, audio.volume + 0.05).toString();
-                    setVolume();
-                }
+                // Volume control removed
                 break;
             case 'ArrowUp':
                 e.preventDefault();
@@ -1280,20 +1637,6 @@ window.onload = () => {
                 navigator.mediaSession.playbackState = "none";
             }
         }
-    }
-
-    // This toggleMute is correct, the one removed earlier was an error
-    function toggleMute() {
-        audio.muted = !audio.muted;
-        // When muting via the button, we don't change the slider value.
-        // This allows the user to unmute and return to their previous volume level.
-        // When unmuting via the button, if the volume slider is at 0, set it to a small value (e.g., 0.1)
-        // to make sound audible immediately.
-        if (!audio.muted && audio.volume === 0) {
-             audio.volume = 0.1;
-             volumeSlider.value = 0.1;
-        }
-        updateVolumeIcon();
     }
 
     function setupCollapsibles() {

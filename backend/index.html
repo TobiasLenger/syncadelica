@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube Audio Player</title>
+    <style>
+        body {
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        input, button {
+            margin: 10px 0;
+        }
+        #error {
+            color: red;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <input type="text" id="yturl" placeholder="Paste YouTube URL here" size="50">
+    <button onclick="playAudio()">Play</button>
+    <div id="error"></div>
+    <br>
+    <audio id="player" controls>
+        Your browser does not support the audio element.
+    </audio>
+
+    <script>
+        async function playAudio() {
+            const errorDiv = document.getElementById('error');
+            const url = document.getElementById('yturl').value;
+            const player = document.getElementById('player');
+            
+            try {
+                errorDiv.style.display = 'none';
+                player.src = 'http://localhost:3000/stream?url=' + encodeURIComponent(url);
+                
+                player.onerror = function() {
+                    errorDiv.textContent = 'Error loading audio. Please try another URL.';
+                    errorDiv.style.display = 'block';
+                };
+
+                await player.play();
+            } catch (err) {
+                errorDiv.textContent = 'Error: ' + err.message;
+                errorDiv.style.display = 'block';
+                console.error('Playback error:', err);
+            }
+        }
+    </script>
+</body>
+</html>

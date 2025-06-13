@@ -381,7 +381,7 @@ body {
     width: 90%;
     text-align: left;
     color: #e0e0e0;
-    max-height: 85vh;
+    height: 85vh; /* Changed from max-height to make the window static */
     display: flex; 
     flex-direction: column; 
     overflow: hidden; 
@@ -427,9 +427,55 @@ body {
     background-color: rgba(255, 255, 255, 0.08);
 }
 
+.search-input-spinner {
+    display: none; /* Hidden by default */
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.2); /* Spinner track color */
+    border-left-color: #ccc; /* Spinner active color */
+    border-radius: 50%;
+    animation: spin 1s linear infinite; /* Reusing existing spin animation */
+}
+
+.search-input-container.searching-active .search-input-spinner {
+    display: inline-block; /* Show when searching */
+}
+
 #search-submit-button svg {
     width: 22px;
     height: 22px;
+}
+
+/* Clear button for search input */
+#search-clear-button {
+    /* This button should have the "icon-button" class in HTML
+       to inherit base styles like background, border, cursor, transition. */
+    display: none; /* Hidden by default, JS should toggle this (e.g., by adding/removing a 'visible' class) */
+    color: #999;    /* Default color for the 'X' icon, slightly subdued */
+    padding: 4px;   /* Adjust padding to be similar to other icons in the container */
+    opacity: 0;     /* Start transparent for animation */
+    transform: scale(0.7); /* Start slightly smaller for animation */
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out; /* Animation properties */
+}
+
+/* Add this class via JavaScript when the input has text and the button should be visible */
+#search-clear-button.visible {
+    display: inline-flex; /* Make it visible and align SVG properly */
+    align-items: center;
+    justify-content: center;
+    opacity: 1;     /* Fade to opaque */
+    transform: scale(1); /* Scale to normal size */
+}
+
+#search-clear-button:hover {
+    color: #ddd;   /* Lighter on hover */
+}
+
+#search-clear-button svg {
+    width: 18px;   /* Slightly smaller than the search submit icon */
+    height: 18px;
+    fill: currentColor; /* 'X' icon should be filled */
+    stroke: none;       /* Ensure no stroke if base .icon-button svg has it */
 }
 
 #search-results-container {
@@ -471,6 +517,29 @@ body {
     padding-top: 20px;
 }
 
+/* Centered loading indicator for new search */
+.search-loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%; /* Fill the search-results-container */
+    text-align: center;
+    color: #aaa;
+    font-style: italic;
+}
+
+.search-loading-indicator .search-loader { /* Reuses .loader style from splash */
+    border: 5px solid rgba(255, 255, 255, 0.2);
+    border-left-color: #fff;
+    border-radius: 50%;
+    width: 40px; /* Slightly smaller than splash loader */
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+.search-loading-indicator p { font-size: 0.9em; }
+
 .search-results-list {
     list-style: none;
     padding: 0;
@@ -480,7 +549,8 @@ body {
 .search-result-item {
     display: flex;
     align-items: center;
-    padding: 10px 5px;
+    padding: 12px 12px; /* Increased top/bottom padding from 10px to 12px */
+    
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     transition: background-color 0.2s ease-in-out;
 }
@@ -491,6 +561,7 @@ body {
 
 .search-result-item:hover {
     background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
 }
 
 .search-result-album-art {
@@ -596,6 +667,85 @@ body {
     color: #fff;
 }
 
+/* Search History Styles */
+
+.search-history-header {
+    font-size: 0.9em;
+    color: #aaa;
+    margin-bottom: 10px;
+    margin-top: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding-left: 5px;
+}
+
+.search-history-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.search-history-item {
+    display: flex; /* For aligning text and delete button */
+    justify-content: space-between; /* Pushes delete button to the right */
+    align-items: center;
+    padding: 10px 8px 10px 12px; /* Adjusted padding for delete button */
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+    font-size: 0.9em;
+    color: #c0c0c0;
+}
+.search-history-item:last-child { border-bottom: none; }
+.search-history-item:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+    color: #fff;
+    border-radius: 4px; /* Apply radius on hover for consistency */
+}
+
+.search-history-item-text {
+    flex-grow: 1; /* Allow text to take available space */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-right: 10px; /* Space before delete button */
+}
+
+.delete-history-item-btn {
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 5px 8px; /* Make clickable area a bit larger */
+    font-size: 1.3em; /* Make the 'x' a bit larger and clearer */
+    line-height: 1;
+    border-radius: 50%;
+    transition: color 0.2s, background-color 0.2s;
+}
+.delete-history-item-btn:hover {
+    color: #fff;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+/* Loading more indicator for search results */
+.search-results-loading-more {
+    text-align: center;
+    padding: 15px;
+    color: #aaa;
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+.search-results-loading-more .small-loader {
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-left-color: #fff; /* Match main loader */
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite; /* Reuse spin animation */
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 8px;
+}
 #visualizer-container {
     position: fixed;
     top: 0; left: 0;
@@ -848,6 +998,7 @@ body[data-layout="text-right"] #lyrics-list { text-align: right; }
     align-items: center;
     flex-grow: 1;
     min-width: 0; /* Prevents overflow issues with nested flex items */
+    min-width: 230px; /* Ensure enough space for progress bar and time displays */
     gap: 8px; /* Space between play/pause button and progress area */
 }
 
@@ -898,11 +1049,28 @@ body[data-layout="text-right"] #lyrics-list { text-align: right; }
 #song-title {
     font-size: 0.95em;
     font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     width: 100%; /* Take full width of .song-info-text */
     color: #e0e0e0;
+
+    /* Default state: standard text display with ellipsis */
+    display: block; 
+    white-space: nowrap;
+    overflow: hidden; 
+    text-overflow: ellipsis;
+}
+
+#song-title.marquee-active-wrapper {
+    text-overflow: clip; /* Remove ellipsis when marquee is active */
+}
+
+.marquee-text-wrapper { /* This span will hold the text and animate */
+    display: inline-block; /* Allows transform and takes width of content */
+    white-space: nowrap; /* Ensures text stays on one line */
+    animation-name: marquee-scroll-dynamic;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    animation-direction: alternate; /* Ping-pong effect */
+    padding-right: 5px; /* Small padding so text doesn't touch edge exactly when scrolled */
 }
 #song-artist { font-size: 0.8em; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
 
@@ -915,9 +1083,9 @@ body[data-layout="text-right"] #lyrics-list { text-align: right; }
     cursor: pointer;
     overflow: hidden;
     flex-basis: 0; /* Allow progress bar to take all remaining space */
+    min-width: 120px; /* Ensure the bar itself has a minimum visual width */
 }
 #progress-fill { height: 100%; width: 0%; background-color: #fff; border-radius: 3px; box-shadow: 0 0 10px #fff; }
-#volume-container { display: flex; align-items: center; gap: 8px; }
 #player-section audio { display: none; }
 
 .icon-button { background: none; border: none; padding: 5px; cursor: pointer; color: #b3b3b3; transition: color 0.2s; }
@@ -1098,9 +1266,7 @@ body.drag-over-active::before {
         padding-top: 5px; /* Space for the progress bar line */
         height: 65px; /* Adjusted height for mobile */
         display: flex;
-        justify-content: space-between;
         align-items: center;
-        gap: 10px; /* Gap between player section and action buttons section */
     }
 
     #progress-bar { /* Repurposed as top border progress */
@@ -1119,8 +1285,8 @@ body.drag-over-active::before {
 
     /* Hide elements not needed in mobile control bar */
     #control-bar #file-upload-section,
-    #control-bar #volume-container,
     #control-bar #toggle-visuals-button, /* Original settings button in bar */
+    #control-bar #open-search-window-button, /* Desktop gear icon (visuals panel) */
     #custom-player .progress-area #current-time, /* Hide time displays */
     #custom-player .progress-area #total-duration {
         display: none !important;
@@ -1159,6 +1325,8 @@ body.drag-over-active::before {
     .playback-core {
         flex-direction: row; /* Ensure play button is in row if other items were there */
         gap: 0; /* Remove gap if any */
+        flex-grow: 0; /* Don't grow, let song-info take space */
+        min-width: auto; /* Reset min-width to content size */
     }
     #play-pause-btn svg { width: 26px; height: 26px; }
 
@@ -1287,4 +1455,13 @@ body.drag-over-active::before {
 }
 .collapsible-trigger.expanded .toggle-indicator {
     transform: rotate(-180deg); /* Rotates '▼' to become '▲' */
+}
+
+@keyframes marquee-scroll-dynamic {
+    0% {
+        transform: translateX(0%);
+    }
+    100% { /* JS will set --marquee-scroll-distance */
+        transform: translateX(calc(var(--marquee-scroll-distance, 0px) * -1));
+    }
 }
