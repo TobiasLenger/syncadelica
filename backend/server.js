@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { YouTube } = require('youtube-sr');
-const { execFile } = require('child_process');
+const youtubedl = require('youtube-dl-exec');
 const fs = require('fs');
 const os = require('os');
 
@@ -11,7 +11,7 @@ app.use(cors());
 app.use(express.static(path.join(__dirname)));
 
 const TEMP_DOWNLOAD_DIR = path.join(os.tmpdir(), 'syncadelica-downloads');
-const MAX_CACHE_SIZE_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB
+const MAX_CACHE_SIZE_BYTES = 500 * 1024 * 1024; // 500 MB (adjust based on Render plan)
 const MAX_FILE_AGE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -163,41 +163,29 @@ app.get('/stream', async (req, res) => {
     }
 
     console.log('Downloading to temporary file:', tempFilePath);
-    const ytDlpArgs = [
-      url,
-      '-o', tempFilePath,
-      '-f', 'bestaudio/best',
-      '--extract-audio',
-      '--audio-format', 'mp3',
-      '--audio-quality', '0',
-      '--no-check-certificates',
-      '--prefer-free-formats',
-      '--no-progress', // Suppress progress bar output to stdout/stderr
-      // '--quiet', // Suppress informational messages, only errors. Enable if stderr is too noisy.
-    ];
+    const ytdlOptions = {
+      output: tempFilePath,
+      format: 'bestaudio/best',
+      extractAudio: true,
+      audioFormat: 'mp3',
+      audioQuality: '0', // yt-dlp expects '0' for best quality
+      noCheckCertificates: true,
+      preferFreeFormats: true,
+      noProgress: true,
+      // quiet: true, // Suppress informational messages, only errors. Enable if stderr is too noisy.
+    };
 
     // Increased timeout for potentially long downloads (e.g., 10 minutes)
-    execFile('yt-dlp', ytDlpArgs, { timeout: 600000 }, (error, stdout, stderr) => {
-      if (error) {
-        console.error(`yt-dlp execFile error: ${error.message}`);
-        if (stderr) console.error(`yt-dlp stderr: ${stderr.trim()}`);
-        // Clean up partially downloaded file if it exists
-        if (fs.existsSync(tempFilePath)) {
-          try { fs.unlinkSync(tempFilePath); } catch (e) { console.error("Error deleting temp file on failure:", e); }
-        }
-        if (!res.headersSent) {
-            return res.status(500).send('Error downloading audio');
-        }
-        return;
-      }
-
+    try {
+      const output = await youtubedl(url, ytdlOptions, { timeout: 600000 });
       console.log('Download complete. Serving file:', tempFilePath);
-      if (stderr && stderr.trim().length > 0) console.log(`yt-dlp stderr (non-fatal): ${stderr.trim()}`);
+      if (output.stdout) console.log(`yt-dlp stdout: ${output.stdout.trim()}`);
+      if (output.stderr && output.stderr.trim().length > 0) console.log(`yt-dlp stderr (non-fatal): ${output.stderr.trim()}`);
 
       if (!fs.existsSync(tempFilePath)) {
-        console.error('Downloaded file path does not exist after successful execFile:', tempFilePath);
+        console.error('Downloaded file path does not exist after successful download:', tempFilePath);
         if (!res.headersSent) {
-            return res.status(500).send('Downloaded audio file not found on server.');
+          return res.status(500).send('Downloaded audio file not found on server.');
         }
         return;
       }
@@ -206,13 +194,25 @@ app.get('/stream', async (req, res) => {
       res.sendFile(tempFilePath, (err) => {
         if (err) {
           console.error('Error sending file:', err);
+          // Attempt to delete potentially corrupted cache file
+          try { if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) { console.error("Error deleting corrupted file on send error:", e); }
           if (!res.headersSent) {
             res.status(500).send('Error serving audio');
           }
         }
-        // Note: File is kept for caching. Implement a cleanup strategy for old files in a production system.
+        // Note: File is kept for caching.
       });
-    });
+    } catch (error) {
+      console.error(`yt-dlp exec error: ${error.message}`);
+      if (error.stderr) console.error(`yt-dlp stderr: ${error.stderr.trim()}`);
+      // Clean up partially downloaded file if it exists
+      if (fs.existsSync(tempFilePath)) {
+        try { fs.unlinkSync(tempFilePath); } catch (e) { console.error("Error deleting temp file on failure:", e); }
+      }
+      if (!res.headersSent) {
+        return res.status(500).send('Error downloading audio');
+      }
+    }
 
   } catch (err) {
     console.error('Error in /stream endpoint:', err);
@@ -271,9 +271,9 @@ app.get('/favicon.ico', (req, res) => {
   res.status(204).end();
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
   // Initial cleanup on startup
   enforceCacheLimits().catch(err => console.error("Initial cache cleanup failed:", err));
   // Periodic cleanup
