@@ -4,9 +4,7 @@
     {
       "src": "backend/server.js",
       "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["backend/node_modules/youtube-dl-exec/bin/**"]
-      }
+      "config": {}
     },
     {
       "src": "frontend/**",
