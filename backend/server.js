@@ -237,44 +237,62 @@ app.get('/stream', async (req, res) => {
 app.get('/search', async (req, res) => {
   const query = req.query.q;
   const page = parseInt(req.query.page) || 1;
-  const limitPerPage = parseInt(req.query.limit) || 10; // Default to 10 results per page
-
-  console.log(`Attempting to search for: "${query}", page: ${page}, limit: ${limitPerPage}`);
+  const limitPerPage = parseInt(req.query.limit) || 10;
 
   if (!query) {
     return res.status(400).json({ message: 'Search query (q) is required' });
   }
 
   try {
-    // youtube-sr limit is total, so fetch enough for the current page
     const youtubeSrTotalLimit = page * limitPerPage;
-    const allFetchedResults = await YouTube.search(query, { limit: youtubeSrTotalLimit, type: 'video' });
-
-    const startIndex = (page - 1) * limitPerPage;
-    const searchResults = allFetchedResults.slice(startIndex, startIndex + limitPerPage);
+    
+    // Add retry logic
+    let retries = 3;
+    let searchResults;
+    
+    while (retries > 0) {
+      try {
+        searchResults = await YouTube.search(query, { 
+          limit: youtubeSrTotalLimit, 
+          type: 'video' 
+        });
+        break;
+      } catch (error) {
+        retries--;
+        if (retries === 0) throw error;
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, (3 - retries) * 1000));
+      }
+    }
 
     if (!searchResults || searchResults.length === 0) {
-      console.log(`No YouTube results found for: ${query}`);
       return res.json([]);
     }
 
-    const formattedResults = searchResults.map(video => {
-      if (!video || !video.id) return null; // Skip if video data is incomplete
-      return {
-        id: video.id,
-        title: video.title || 'Unknown Title',
-        artist: video.channel?.name || 'Unknown Artist',
-        albumArtUrl: video.thumbnail?.url || null,
-        youtubeUrl: video.url,
-      };
-    }).filter(item => item !== null); // Filter out any null entries
+    const startIndex = (page - 1) * limitPerPage;
+    const paginatedResults = searchResults.slice(startIndex, startIndex + limitPerPage);
 
-    console.log(`Search processed with youtube-sr, returning ${formattedResults.length} items for page ${page} of query: "${query}"`);
+    const formattedResults = paginatedResults
+      .map(video => {
+        if (!video || !video.id) return null;
+        return {
+          id: video.id,
+          title: video.title || 'Unknown Title',
+          artist: video.channel?.name || 'Unknown Artist',
+          albumArtUrl: video.thumbnail?.url || null,
+          youtubeUrl: video.url,
+        };
+      })
+      .filter(item => item !== null);
+
     res.json(formattedResults);
 
   } catch (err) {
-    console.error('youtube-sr search execution error:', err);
-    res.status(500).json({ message: 'Error processing YouTube search with youtube-sr' });
+    console.error('Search error:', err);
+    res.status(500).json({ 
+      message: 'Search failed',
+      error: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    });
   }
 });
 

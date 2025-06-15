@@ -513,36 +513,47 @@ window.onload = () => {
         searchResultsContainer.appendChild(ul);
     }
 
-    async function performSearch(queryValue) { // Renamed query to queryValue to avoid conflict with currentSearchQuery
+    async function performSearch(queryValue) {
         if (!queryValue || queryValue.trim() === '') {
             searchResultsContainer.innerHTML = '<p class="search-placeholder">Please enter a search term.</p>';
             return;
         }
 
         currentSearchQuery = queryValue.trim();
-        addSearchToHistory(currentSearchQuery); // Add to history
+        addSearchToHistory(currentSearchQuery);
         currentSearchPage = 1;
         canLoadMoreSearchResults = true;
-        isLoadingMoreSearchResults = false; // Reset loading lock
+        isLoadingMoreSearchResults = false;
 
-        // Show initial loader for a new search
         searchResultsContainer.innerHTML = `
             <div class="search-loading-indicator">
                 <div class="search-loader"></div>
                 <p>Searching for "${currentSearchQuery}"...</p>
             </div>`;
-        
-        // Remove any existing "load more" indicator from previous searches
-        const existingLoadMoreIndicator = searchResultsContainer.querySelector('.search-results-loading-more');
-        if (existingLoadMoreIndicator) {
-            existingLoadMoreIndicator.remove();
-        }
 
         try {
-            await loadMoreSearchResults(); // Fetch the first page
-        } catch (e) {
-            console.error("Error during initial search operation:", e);
-            // Error display is handled within loadMoreSearchResults via searchResultsContainer.innerHTML
+            const response = await fetch(`${BACKEND_API_URL}/search?q=${encodeURIComponent(currentSearchQuery)}&page=1&limit=${SEARCH_RESULTS_PER_PAGE}`);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Server error: ${response.status}`);
+            }
+
+            const results = await response.json();
+            if (results && results.length > 0) {
+                renderSearchResults(results, true);
+            } else {
+                searchResultsContainer.innerHTML = `
+                    <p class="search-placeholder">No results found for "${currentSearchQuery}".</p>`;
+                canLoadMoreSearchResults = false;
+            }
+        } catch (error) {
+            console.error('Search failed:', error);
+            searchResultsContainer.innerHTML = `
+                <p class="search-placeholder error">
+                    Search failed: ${error.message}. Please try again later.
+                </p>`;
+            canLoadMoreSearchResults = false;
         }
     }
 
@@ -1526,6 +1537,7 @@ window.onload = () => {
             }
             if (hotkeyInfoWindow && !hotkeyInfoWindow.classList.contains('hidden')) {
                 e.preventDefault();
+
                 hotkeyInfoWindow.classList.add('hidden');
                 return;
             }
