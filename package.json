@@ -6,6 +6,6 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "youtube-sr": "^4.3.11"
+    "youtube-sr": "^4.3.4"
   }
 }

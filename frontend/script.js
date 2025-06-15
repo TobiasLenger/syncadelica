@@ -514,46 +514,22 @@ window.onload = () => {
     }
 
     async function performSearch(queryValue) {
-        if (!queryValue || queryValue.trim() === '') {
-            searchResultsContainer.innerHTML = '<p class="search-placeholder">Please enter a search term.</p>';
-            return;
-        }
-
-        currentSearchQuery = queryValue.trim();
-        addSearchToHistory(currentSearchQuery);
-        currentSearchPage = 1;
-        canLoadMoreSearchResults = true;
-        isLoadingMoreSearchResults = false;
-
-        searchResultsContainer.innerHTML = `
-            <div class="search-loading-indicator">
-                <div class="search-loader"></div>
-                <p>Searching for "${currentSearchQuery}"...</p>
-            </div>`;
-
         try {
-            const response = await fetch(`${BACKEND_API_URL}/search?q=${encodeURIComponent(currentSearchQuery)}&page=1&limit=${SEARCH_RESULTS_PER_PAGE}`);
+            const response = await fetch(`/api/search?q=${encodeURIComponent(queryValue)}&page=1&limit=10`);
             
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || `Server error: ${response.status}`);
+                throw new Error(`Server returned ${response.status}`);
             }
 
-            const results = await response.json();
-            if (results && results.length > 0) {
-                renderSearchResults(results, true);
-            } else {
-                searchResultsContainer.innerHTML = `
-                    <p class="search-placeholder">No results found for "${currentSearchQuery}".</p>`;
-                canLoadMoreSearchResults = false;
+            const data = await response.json();
+            if (!Array.isArray(data)) {
+                throw new Error('Invalid response format');
             }
+
+            return data;
         } catch (error) {
             console.error('Search failed:', error);
-            searchResultsContainer.innerHTML = `
-                <p class="search-placeholder error">
-                    Search failed: ${error.message}. Please try again later.
-                </p>`;
-            canLoadMoreSearchResults = false;
+            throw new Error('Failed to fetch search results: ' + error.message);
         }
     }
 
