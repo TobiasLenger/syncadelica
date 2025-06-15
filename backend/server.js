@@ -271,11 +271,21 @@ app.get('/favicon.ico', (req, res) => {
   res.status(204).end();
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  // Initial cleanup on startup
+// For Vercel, we export the app. app.listen() is handled by Vercel.
+// The cache cleanup on startup will run when a new serverless function instance starts (cold start).
+// Periodic cleanup via setInterval is not effective in a serverless environment.
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) { // Only listen locally
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    // Initial cleanup on startup for local development
+    enforceCacheLimits().catch(err => console.error("Initial cache cleanup failed:", err));
+    // Periodic cleanup for local development
+    setInterval(() => enforceCacheLimits().catch(err => console.error("Periodic cache cleanup failed:", err)), CLEANUP_INTERVAL_MS);
+  });
+} else {
+  // In Vercel, run initial cleanup once if possible (e.g., on cold start)
   enforceCacheLimits().catch(err => console.error("Initial cache cleanup failed:", err));
-  // Periodic cleanup
-  setInterval(() => enforceCacheLimits().catch(err => console.error("Periodic cache cleanup failed:", err)), CLEANUP_INTERVAL_MS);
-});
+}
+
+module.exports = app;
