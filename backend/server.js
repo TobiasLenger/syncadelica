@@ -48,6 +48,18 @@ async function getDirectorySize(dirPath) {
 async function enforceCacheLimits() {
   console.log('Running cache cleanup...');
   if (!fs.existsSync(TEMP_DOWNLOAD_DIR)) {
+    // Attempt to create the directory if it doesn't exist, as it might be the first run.
+    try {
+      await fs.promises.mkdir(TEMP_DOWNLOAD_DIR, { recursive: true });
+      console.log('Cache directory created during cleanup check.');
+    } catch (mkdirError) {
+      console.error(`Cache cleanup: Could not create cache directory ${TEMP_DOWNLOAD_DIR}: ${mkdirError.message}`);
+      // If creation fails, it's likely a permissions issue or an invalid path, so we can't proceed.
+      return;
+    }
+  }
+  // Re-check after attempting creation. If it still doesn't exist, something is wrong.
+  if (!fs.existsSync(TEMP_DOWNLOAD_DIR)) {
     console.log('Cache directory does not exist. Skipping cleanup.');
     return;
   }
